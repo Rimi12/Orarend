@@ -12,13 +12,26 @@ interface Chromosome {
 }
 
 export const useAutoScheduler = () => {
-  const { currentState, setPlacedLessons, findTeacher, findSubject, findClass } = useTimetable();
+  const { currentState, setPlacedLessons, findSubject, findClass } = useTimetable();
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
   const [generationCount, setGenerationCount] = useState(0);
   const [bestFitness, setBestFitness] = useState(0);
 
   const abortRef = useRef<boolean>(false);
+
+  // Precalculate available slots for a teacher
+  const getTeacherAvailableSlots = useCallback((teacher: Teacher) => {
+    const slots: { day: number; period: number }[] = [];
+    for (let day = 0; day < 5; day++) {
+      for (let period = 0; period < 8; period++) {
+        if (teacher?.availability[day]?.[period] !== false) {
+          slots.push({ day, period });
+        }
+      }
+    }
+    return slots.length > 0 ? slots : [{ day: 0, period: 0 }];
+  }, []);
 
   const calculateFitness = useCallback((genes: Chromosome['genes'], allTeachers: Teacher[]): number => {
     let score = 0;
@@ -31,17 +44,16 @@ export const useAutoScheduler = () => {
       const { allocation, day, period } = gene;
       const teacher = allTeachers.find(t => t.id === allocation.teacherId);
       const subject = findSubject(allocation.subjectId);
-      const cls = findClass(allocation.classId);
 
       const groupName = allocation.originalGroup || '';
       const subjectName = subject?.name || '';
       const teacherId = allocation.teacherId;
       const classId = allocation.classId;
 
-      // 1. Teacher availability (Hard Constraint)
+      // 1. Teacher availability (Szigorú Hard Constraint)
       const isTeacherAvailable = teacher?.availability[day]?.[period] ?? true;
       if (!isTeacherAvailable) {
-        score -= 2000;
+        score -= 200000;
       }
 
       // Add to teacher lookup
@@ -53,10 +65,9 @@ export const useAutoScheduler = () => {
       classLessons[classId].push({ day, period, groupName, subjectName });
     });
 
-    // 2. Teacher collisions (Hard Constraint)
+    // 2. Teacher collisions (Szigorú Hard Constraint)
     Object.keys(teacherLessons).forEach(teacherId => {
       const lessons = teacherLessons[teacherId];
-      // Group by day & period
       const slots: Record<string, typeof lessons> = {};
       lessons.forEach(l => {
         const slotKey = `${l.day}-${l.period}`;
@@ -70,14 +81,13 @@ export const useAutoScheduler = () => {
           // Parallel lesson check: allowed if they share the exact same classId (same merged class)
           const classIds = new Set(slots[slotKey].map(l => l.classId));
           if (classIds.size > 1) {
-            // Teacher is teaching different classes at the same time -> Collision!
-            score -= 1000 * (count - 1);
+            // Collision! Teacher is teaching different classes at the same time
+            score -= 200000 * (count - 1);
           }
         }
       });
 
-      // 3. Teacher Lyukasóra (Soft Constraint)
-      // Group by day to find gaps
+      // Teacher Lyukasóra (Soft Constraint)
       const days: Record<number, number[]> = {};
       lessons.forEach(l => {
         if (!days[l.day]) days[l.day] = [];
@@ -89,20 +99,18 @@ export const useAutoScheduler = () => {
         if (pList.length > 1) {
           const minP = pList[0];
           const maxP = pList[pList.length - 1];
-          // Count missing periods between min and max
           for (let p = minP + 1; p < maxP; p++) {
             if (!pList.includes(p)) {
-              score -= 15; // Penalty per teacher gap hour
+              score -= 50; // Soft penalty for teacher gap
             }
           }
         }
       });
     });
 
-    // 4. Class / Group collisions (Hard & Soft Constraints)
+    // 3. Class constraints (Hard & Soft Constraints)
     Object.keys(classLessons).forEach(classId => {
       const lessons = classLessons[classId];
-      // Group by day & period
       const slots: Record<string, typeof lessons> = {};
       lessons.forEach(l => {
         const slotKey = `${l.day}-${l.period}`;
@@ -113,23 +121,23 @@ export const useAutoScheduler = () => {
       Object.keys(slots).forEach(slotKey => {
         const lessonsInSlot = slots[slotKey];
         if (lessonsInSlot.length > 1) {
-          // Check if they are group lessons. Parallel is allowed if they have different non-empty groups.
-          // If any lesson is whole-class (groupName is empty), it cannot run parallel with anything.
+          // Parallel lessons for class: ONLY allowed if they are separate groups (e.g. A and B).
+          // If any lesson is whole-class (groupName is empty ""), it cannot run parallel with any other.
           const groups = lessonsInSlot.map(l => l.groupName);
           const hasWholeClass = groups.some(g => g === '');
           if (hasWholeClass) {
-            score -= 1000 * (lessonsInSlot.length - 1);
+            score -= 200000 * (lessonsInSlot.length - 1);
           } else {
-            // All are group lessons. Check for duplicate groups.
+            // Check for duplicate group names (e.g. both are A csoport)
             const uniqueGroups = new Set(groups);
             if (uniqueGroups.size < groups.length) {
-              score -= 1000 * (groups.length - uniqueGroups.size);
+              score -= 200000 * (groups.length - uniqueGroups.size);
             }
           }
         }
       });
 
-      // 5. Student Lyukasóra (Soft Constraint)
+      // 4. Class Gaps / Lyukasóra-mentesség (Szigorú Hard Constraint)
       const days: Record<number, number[]> = {};
       lessons.forEach(l => {
         if (!days[l.day]) days[l.day] = [];
@@ -138,18 +146,25 @@ export const useAutoScheduler = () => {
 
       Object.keys(days).forEach(dStr => {
         const pList = days[Number(dStr)].sort((a, b) => a - b);
-        if (pList.length > 1) {
+        if (pList.length > 0) {
           const minP = pList[0];
           const maxP = pList[pList.length - 1];
+          
+          // Strict: no empty periods between min and max
           for (let p = minP + 1; p < maxP; p++) {
             if (!pList.includes(p)) {
-              score -= 60; // Hard penalty for student lyukasóra
+              score -= 200000; // Huge penalty for student lyukasóra!
             }
+          }
+
+          // Class must start at first period (index 0)
+          if (minP > 0) {
+            score -= 50000 * minP; // Penalty if class starts late
           }
         }
       });
 
-      // 6. Subject-Period Dist & Napközi Timing (Soft Constraints)
+      // 5. Napközi & Academic timing (Szigorú Hard & Soft Constraints)
       lessons.forEach(l => {
         const isNapközi = l.subjectName.toLowerCase().includes('napközi') || l.subjectName.toLowerCase().includes('szabadidő');
         const isAcademic = !isNapközi && 
@@ -159,25 +174,24 @@ export const useAutoScheduler = () => {
                           !l.subjectName.toLowerCase().includes('fejlesztés') &&
                           !l.subjectName.toLowerCase().includes('logopédia');
 
-        // Napközi must be in afternoon (period >= 4, which is 5th period 0-indexed)
+        // Napközi must be afternoon (period >= 4)
         if (isNapközi && l.period < 4) {
-          score -= 300; // Napközi in morning is heavily penalized
+          score -= 200000; // Szigorú Hard Constraint: Napközi cannot be in morning
         }
 
-        // Academic must be in morning (period < 4)
+        // Academic should be morning (period < 4)
         if (isAcademic && l.period >= 4) {
-          score -= 30; // Academic in afternoon is penalized
+          score -= 30000; // Strong penalty if academic is forced to afternoon
         }
       });
 
-      // 7. Subject daily distribution (Soft Constraint)
-      // Penalize multiple identical subjects for the same class on the same day
+      // Subject daily distribution (Soft Constraint)
       const daySubjects: Record<string, Set<string>> = {};
       lessons.forEach(l => {
         const key = `${l.day}`;
         if (!daySubjects[key]) daySubjects[key] = new Set();
         if (daySubjects[key].has(l.subjectName) && l.subjectName !== 'Napközi') {
-          score -= 15; // Penalty for duplicate subject on same day
+          score -= 20; // Soft penalty for duplicate subject on same day
         }
         daySubjects[key].add(l.subjectName);
       });
@@ -185,6 +199,51 @@ export const useAutoScheduler = () => {
 
     return score;
   }, [findSubject, findClass]);
+
+  // Local Search (Hill Climbing / Memetic Search) to resolve remaining conflicts locally
+  const runLocalSearch = useCallback((
+    genes: Chromosome['genes'],
+    teachers: Teacher[],
+    allocationAvailableSlots: Map<string, { day: number; period: number }[]>
+  ): Chromosome['genes'] => {
+    let improved = true;
+    let currentGenes = genes.map(g => ({ ...g }));
+    let currentFitness = calculateFitness(currentGenes, teachers);
+
+    // Run up to 4 optimization passes
+    for (let pass = 0; pass < 4; pass++) {
+      improved = false;
+      for (let i = 0; i < currentGenes.length; i++) {
+        const gene = currentGenes[i];
+        const slots = allocationAvailableSlots.get(gene.allocation.id)!;
+        
+        let bestSlot = { day: gene.day, period: gene.period };
+        let bestSlotFitness = currentFitness;
+
+        for (const slot of slots) {
+          if (slot.day === gene.day && slot.period === gene.period) continue;
+          
+          // Try slot change
+          currentGenes[i].day = slot.day;
+          currentGenes[i].period = slot.period;
+          
+          const f = calculateFitness(currentGenes, teachers);
+          if (f > bestSlotFitness) {
+            bestSlotFitness = f;
+            bestSlot = { day: slot.day, period: slot.period };
+            improved = true;
+          }
+        }
+
+        // Apply best slot
+        currentGenes[i].day = bestSlot.day;
+        currentGenes[i].period = bestSlot.period;
+        currentFitness = bestSlotFitness;
+      }
+      if (!improved) break;
+    }
+    return currentGenes;
+  }, [calculateFitness]);
 
   const generateTimetable = useCallback(async (options: { resetAll: boolean }) => {
     if (!currentState) return;
@@ -194,10 +253,9 @@ export const useAutoScheduler = () => {
     setBestFitness(-999999);
     abortRef.current = false;
 
-    // 1. Gather all allocations to schedule
     const { allocations, placedLessons, teachers } = currentState;
 
-    // Filter out allocations where the teacher is traveling / manual only
+    // Filter out allocations of traveling teachers
     const activeAllocations = allocations.filter(a => {
       const teacher = teachers.find(t => t.id === a.teacherId);
       return !teacher?.isTraveling;
@@ -212,7 +270,7 @@ export const useAutoScheduler = () => {
     });
 
     if (lessonsToPlace.length === 0) {
-      alert("Nincsenek automatikusan tervezhető órák (lehet, hogy minden tanár utazónak van jelölve).");
+      alert("Nincsenek automatikusan tervezhető órák.");
       setIsGenerating(false);
       return;
     }
@@ -221,14 +279,13 @@ export const useAutoScheduler = () => {
     const preservedLessons = options.resetAll 
       ? placedLessons.filter(l => {
           const teacher = teachers.find(t => t.id === l.allocation.teacherId);
-          return teacher?.isTraveling; // Keep only traveling
+          return teacher?.isTraveling;
         })
-      : [...placedLessons]; // Keep everything
+      : [...placedLessons];
 
-    // If we are scheduling remaining, filter out lessonsToPlace that are already placed
+    // Filter out lessons that are already placed (if scheduling remaining)
     let finalLessonsToPlace = [...lessonsToPlace];
     if (!options.resetAll) {
-      // For each placed lesson of non-traveling teachers, subtract one weekly hour from what we need to place
       const placedNonTraveling = placedLessons.filter(l => {
         const teacher = teachers.find(t => t.id === l.allocation.teacherId);
         return !teacher?.isTraveling;
@@ -248,35 +305,22 @@ export const useAutoScheduler = () => {
       return;
     }
 
-    // Helper to get available slots for a teacher
-    const getAvailableSlots = (teacherId: string) => {
-      const teacher = teachers.find(t => t.id === teacherId);
-      const slots: { day: number; period: number }[] = [];
-      for (let day = 0; day < 5; day++) {
-        for (let period = 0; period < 8; period++) {
-          if (teacher?.availability[day]?.[period] !== false) {
-            slots.push({ day, period });
-          }
-        }
-      }
-      return slots.length > 0 ? slots : [{ day: 0, period: 0 }];
-    };
-
     // Precalculate available slots for each allocation
     const allocationAvailableSlots = new Map<string, { day: number; period: number }[]>();
     finalLessonsToPlace.forEach(alloc => {
       if (!allocationAvailableSlots.has(alloc.id)) {
-        allocationAvailableSlots.set(alloc.id, getAvailableSlots(alloc.teacherId));
+        const teacher = teachers.find(t => t.id === alloc.teacherId)!;
+        allocationAvailableSlots.set(alloc.id, getTeacherAvailableSlots(teacher));
       }
     });
 
-    // 2. Initialize Genetic Algorithm parameters
-    const populationSize = 60;
-    const maxGenerations = 300;
-    const mutationRate = 0.15;
+    // 2. Initialize Genetic Algorithm parameters (Szigorított méretek)
+    const populationSize = 120;
+    const maxGenerations = 500;
+    const mutationRate = 0.2;
     const crossoverRate = 0.5;
 
-    // Create random chromosome helper
+    // Create random chromosome and apply initial local search to give it a head-start
     const createRandomChromosome = (): Chromosome => {
       const genes = finalLessonsToPlace.map(alloc => {
         const slots = allocationAvailableSlots.get(alloc.id)!;
@@ -287,7 +331,13 @@ export const useAutoScheduler = () => {
           period: randomSlot.period
         };
       });
-      return { genes, fitness: calculateFitness(genes, teachers) };
+
+      // Apply initial local search to resolve easy conflicts immediately
+      const optimizedGenes = runLocalSearch(genes, teachers, allocationAvailableSlots);
+      return { 
+        genes: optimizedGenes, 
+        fitness: calculateFitness(optimizedGenes, teachers) 
+      };
     };
 
     // Initialize population
@@ -296,7 +346,6 @@ export const useAutoScheduler = () => {
       population.push(createRandomChromosome());
     }
 
-    // Run generations in chunks async
     let currentGen = 0;
     const runGenerationChunk = () => {
       if (abortRef.current) {
@@ -304,23 +353,30 @@ export const useAutoScheduler = () => {
         return;
       }
 
-      const chunkCount = 20; // run 20 generations per tick
+      const chunkCount = 15; // Generations per tick
       for (let c = 0; c < chunkCount; c++) {
         if (currentGen >= maxGenerations) break;
 
-        // Sort population by fitness
         population.sort((a, b) => b.fitness - a.fitness);
 
         const newPopulation: Chromosome[] = [];
 
-        // Elitisms: carry over top 5
-        for (let i = 0; i < 6; i++) {
+        // Carry over top 10 elites
+        for (let i = 0; i < 10; i++) {
           newPopulation.push(population[i]);
+        }
+
+        // Apply local search to the top 3 elites in each generation to accelerate convergence
+        for (let i = 0; i < 3; i++) {
+          const optimizedGenes = runLocalSearch(newPopulation[i].genes, teachers, allocationAvailableSlots);
+          newPopulation[i] = {
+            genes: optimizedGenes,
+            fitness: calculateFitness(optimizedGenes, teachers)
+          };
         }
 
         // Selection & reproduction
         while (newPopulation.length < populationSize) {
-          // Tournament selection
           const tournamentSelect = () => {
             const index1 = Math.floor(Math.random() * populationSize);
             const index2 = Math.floor(Math.random() * populationSize);
@@ -372,7 +428,6 @@ export const useAutoScheduler = () => {
         currentGen++;
       }
 
-      // Update state
       population.sort((a, b) => b.fitness - a.fitness);
       const best = population[0];
       setGenerationCount(currentGen);
@@ -382,13 +437,17 @@ export const useAutoScheduler = () => {
       if (currentGen < maxGenerations) {
         setTimeout(runGenerationChunk, 10);
       } else {
-        // Finished!
-        setIsGenerating(false);
+        // Finished GA! Run a final, deep local search pass on the absolute best solution
+        const finalOptimizedGenes = runLocalSearch(best.genes, teachers, allocationAvailableSlots);
+        const finalFitness = calculateFitness(finalOptimizedGenes, teachers);
+        
+        setBestFitness(finalFitness);
         setProgress(100);
+        setIsGenerating(false);
 
         // Apply genes back to placements
         const newPlacedLessons: PlacedLesson[] = [...preservedLessons];
-        best.genes.forEach(gene => {
+        finalOptimizedGenes.forEach(gene => {
           newPlacedLessons.push({
             id: `${gene.allocation.id}-${crypto.randomUUID()}`,
             allocation: gene.allocation,
@@ -402,7 +461,7 @@ export const useAutoScheduler = () => {
     };
 
     setTimeout(runGenerationChunk, 10);
-  }, [currentState, calculateFitness, setPlacedLessons]);
+  }, [currentState, getTeacherAvailableSlots, runLocalSearch, calculateFitness, setPlacedLessons]);
 
   const cancelGeneration = useCallback(() => {
     abortRef.current = true;
