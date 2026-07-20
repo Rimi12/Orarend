@@ -10,6 +10,7 @@ import { SaveIcon } from './icons/SaveIcon.tsx';
 import { DocumentArrowDownIcon } from './icons/DocumentArrowDownIcon.tsx';
 import { DocumentRefreshIcon } from './icons/DocumentRefreshIcon.tsx';
 import { ArrowPathIcon } from './icons/ArrowPathIcon.tsx';
+import { SparklesIcon } from './icons/SparklesIcon.tsx';
 import type { Class, Teacher } from '../types.ts';
 
 interface HeaderProps {
@@ -35,6 +36,7 @@ interface HeaderProps {
   updateFileRef: React.RefObject<HTMLInputElement>;
   handleAllocationUpdateFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   handleReset: () => void;
+  onStartAutoSchedule: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -44,7 +46,8 @@ export const Header: React.FC<HeaderProps> = ({
   setIsAvailabilityModalOpen, setIsStandbySelectionModalOpen,
   handleExportForKreta, setIsSettingsModalOpen,
   googleDrive, saveStatus, handleSaveToDrive, handleSaveToFile,
-  updateFileRef, handleAllocationUpdateFileChange, handleReset
+  updateFileRef, handleAllocationUpdateFileChange, handleReset,
+  onStartAutoSchedule
 }) => {
   return (
     <header className="bg-white dark:bg-gray-800 shadow-md rounded-2xl p-4 mb-6 flex flex-wrap items-center justify-between gap-4 no-print">
@@ -90,6 +93,14 @@ export const Header: React.FC<HeaderProps> = ({
           className="px-4 py-2.5 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
         >
           Elérhetőség
+        </button>
+        <button
+          onClick={onStartAutoSchedule}
+          className="px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all flex items-center gap-2"
+          title="Automatikus AI órarend-tervezés"
+        >
+          <SparklesIcon className="w-5 h-5 text-yellow-300 animate-pulse" />
+          <span className="hidden lg:inline">AI Tervezés</span>
         </button>
         <button
             onClick={() => setIsStandbySelectionModalOpen(true)}

@@ -17,6 +17,7 @@ interface TimetableContextType {
   findSubject: (id: string) => Subject | undefined;
   findTeacher: (id: string) => Teacher | undefined;
   setTeacherAvailability: (teacherId: string, day: number, period: number, isAvailable: boolean) => void;
+  setTeacherTraveling: (teacherId: string, isTraveling: boolean) => void;
   checkCollision: (allocation: Allocation, cell: TimetableCellData) => Collision;
   saveStateToStorage: () => void;
   loadStateFromStorage: () => void;
@@ -31,6 +32,7 @@ interface TimetableContextType {
   selectedTeacherId: string | null;
   selectedClassId: string | null;
   driveFileId: string | null;
+  setPlacedLessons: (placedLessons: PlacedLesson[]) => void;
 }
 
 const TimetableContext = createContext<TimetableContextType | undefined>(undefined);
@@ -162,6 +164,11 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         pushNewState({ ...currentState, placedLessons: currentState.placedLessons.filter(p => p.id !== lessonId) });
     }, [currentState, pushNewState]);
 
+    const setPlacedLessons = useCallback((placedLessons: PlacedLesson[]) => {
+        if (!currentState) return;
+        pushNewState({ ...currentState, placedLessons });
+    }, [currentState, pushNewState]);
+
     const setTeacherAvailability = useCallback((teacherId: string, day: number, period: number, isAvailable: boolean) => {
         if (!currentState) return;
         let newPlacedLessons = [...currentState.placedLessons];
@@ -179,6 +186,17 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             return teacher;
         });
         pushNewState({ ...currentState, teachers: newTeachers, placedLessons: newPlacedLessons });
+    }, [currentState, pushNewState]);
+    
+    const setTeacherTraveling = useCallback((teacherId: string, isTraveling: boolean) => {
+        if (!currentState) return;
+        const newTeachers = currentState.teachers.map(teacher => {
+            if (teacher.id === teacherId) {
+                return { ...teacher, isTraveling };
+            }
+            return teacher;
+        });
+        pushNewState({ ...currentState, teachers: newTeachers });
     }, [currentState, pushNewState]);
     
     const saveStateToStorage = useCallback(() => {
@@ -382,6 +400,7 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         findSubject,
         findTeacher,
         setTeacherAvailability,
+        setTeacherTraveling,
         checkCollision,
         saveStateToStorage,
         loadStateFromStorage,
@@ -399,10 +418,11 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setSelectedTeacherId,
         setSelectedClassId,
         setDriveFileId,
+        setPlacedLessons,
     }), [
         dataLoaded, currentState, sortedTeachers, sortedClasses, loadParsedData, getUnplacedLessonsForTeacher,
-        addLesson, removeLesson, findClass, findSubject, findTeacher,
-        setTeacherAvailability, checkCollision, saveStateToStorage,
+        addLesson, removeLesson, setPlacedLessons, findClass, findSubject, findTeacher,
+        setTeacherAvailability, setTeacherTraveling, checkCollision, saveStateToStorage,
         loadStateFromStorage, loadState, clearAllData,
         prepareAllocationUpdate, applyAllocationUpdate, undo, redo, canUndo, canRedo,
         selectedTeacherId, selectedClassId, driveFileId,

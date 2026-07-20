@@ -19,6 +19,8 @@ import { ParallelLessonModal } from './components/ParallelLessonModal.tsx';
 import { StandbyDutyModal } from './components/StandbyDutyModal.tsx';
 import { StandbySelectionModal } from './components/StandbySelectionModal.tsx';
 import { Header } from './components/Header.tsx';
+import { useAutoScheduler } from './hooks/useAutoScheduler.ts';
+import { AutoSchedulerModal } from './components/AutoSchedulerModal.tsx';
 
 const App: React.FC = () => {
   return (
@@ -37,13 +39,17 @@ const Main: React.FC = () => {
     selectedTeacherId, selectedClassId, driveFileId,
     setSelectedTeacherId, setSelectedClassId,
     sortedTeachers, sortedClasses,
+    setTeacherTraveling, setPlacedLessons
   } = useTimetable();
   
   const [isAvailabilityModalOpen, setIsAvailabilityModalOpen] = useState(false);
+  const [isAutoSchedulerOpen, setIsAutoSchedulerOpen] = useState(false);
   
   const [googleApiKey, setGoogleApiKey] = useState<string | null>(null);
   const [googleClientId, setGoogleClientId] = useState<string | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+  const autoScheduler = useAutoScheduler();
 
   // Resizable panel states and handlers
   const [leftWidth, setLeftWidth] = useState(33.3); // Width of Class Timetable in %
@@ -205,6 +211,7 @@ const Main: React.FC = () => {
         updateFileRef={updateFileRef}
         handleAllocationUpdateFileChange={handleAllocationUpdateFileChange}
         handleReset={handleReset}
+        onStartAutoSchedule={() => setIsAutoSchedulerOpen(true)}
       />
 
       {googleDrive.authError && (
@@ -278,6 +285,7 @@ const Main: React.FC = () => {
         teacher={selectedTeacher}
         onClose={() => setIsAvailabilityModalOpen(false)}
         onAvailabilityChange={setTeacherAvailability}
+        onTravelingChange={setTeacherTraveling}
         isOpen={isAvailabilityModalOpen}
       />}
 
@@ -323,6 +331,17 @@ const Main: React.FC = () => {
         report={standbyReport}
         onRepairWithAI={handleRepairStandbyWithAI}
         isGeneratingAI={isGeneratingWithAI}
+      />
+
+      <AutoSchedulerModal
+        isOpen={isAutoSchedulerOpen}
+        onClose={() => setIsAutoSchedulerOpen(false)}
+        isGenerating={autoScheduler.isGenerating}
+        progress={autoScheduler.progress}
+        generationCount={autoScheduler.generationCount}
+        bestFitness={autoScheduler.bestFitness}
+        onGenerate={autoScheduler.generateTimetable}
+        onCancel={autoScheduler.cancelGeneration}
       />
 
     </div>

@@ -9,6 +9,7 @@ export interface Teacher {
   name: string;
   availability: boolean[][]; // [dayIndex][periodIndex]
   color: string;
+  isTraveling?: boolean;
 }
 
 export interface Class {

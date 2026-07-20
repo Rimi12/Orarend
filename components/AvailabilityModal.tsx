@@ -7,9 +7,10 @@ interface AvailabilityModalProps {
   teacher: Teacher | null;
   onClose: () => void;
   onAvailabilityChange: (teacherId: string, day: number, period: number, isAvailable: boolean) => void;
+  onTravelingChange?: (teacherId: string, isTraveling: boolean) => void;
 }
 
-export const AvailabilityModal: React.FC<AvailabilityModalProps> = ({ isOpen, teacher, onClose, onAvailabilityChange }) => {
+export const AvailabilityModal: React.FC<AvailabilityModalProps> = ({ isOpen, teacher, onClose, onAvailabilityChange, onTravelingChange }) => {
   if (!isOpen || !teacher) return null;
 
   return (
@@ -54,6 +55,22 @@ export const AvailabilityModal: React.FC<AvailabilityModalProps> = ({ isOpen, te
             </tbody>
           </table>
         </div>
+
+        {/* Traveling Checkbox */}
+        {onTravelingChange && (
+          <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700/30 border border-gray-200 dark:border-gray-700 rounded-xl flex items-center gap-3 no-print">
+            <input
+              id="traveling-checkbox"
+              type="checkbox"
+              className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500 border-gray-300 dark:bg-gray-600 dark:border-gray-500 cursor-pointer"
+              checked={teacher.isTraveling || false}
+              onChange={(e) => onTravelingChange(teacher.id, e.target.checked)}
+            />
+            <label htmlFor="traveling-checkbox" className="text-sm font-semibold text-gray-700 dark:text-gray-300 cursor-pointer select-none">
+              Utazó pedagógus / Kézi tervezésű órarend (AI generáló motor hagyja ki)
+            </label>
+          </div>
+        )}
 
         <div className="mt-8 flex justify-end">
           <button
