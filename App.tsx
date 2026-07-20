@@ -45,6 +45,44 @@ const Main: React.FC = () => {
   const [googleClientId, setGoogleClientId] = useState<string | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
+  // Resizable panel states and handlers
+  const [leftWidth, setLeftWidth] = useState(33.3); // Width of Class Timetable in %
+  const [isXlScreen, setIsXlScreen] = useState(window.innerWidth >= 1280);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsXlScreen(window.innerWidth >= 1280);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const startResize = useCallback((mouseDownEvent: React.MouseEvent) => {
+    mouseDownEvent.preventDefault();
+    const startX = mouseDownEvent.clientX;
+    const startWidth = leftWidth;
+    const container = mouseDownEvent.currentTarget.parentElement;
+    if (!container) return;
+    const containerWidth = container.clientWidth;
+
+    const doDrag = (mouseMoveEvent: MouseEvent) => {
+      const deltaX = mouseMoveEvent.clientX - startX;
+      const newWidthPercent = startWidth + (deltaX / containerWidth) * 100;
+      // Constraint to keep left panel between 20% and 60%
+      if (newWidthPercent >= 20 && newWidthPercent <= 60) {
+        setLeftWidth(newWidthPercent);
+      }
+    };
+
+    const stopDrag = () => {
+      document.removeEventListener('mousemove', doDrag);
+      document.removeEventListener('mouseup', stopDrag);
+    };
+
+    document.addEventListener('mousemove', doDrag);
+    document.addEventListener('mouseup', stopDrag);
+  }, [leftWidth]);
+
   const {
     draggedAllocation,
     parallelConfirmation,
@@ -176,8 +214,11 @@ const Main: React.FC = () => {
         </div>
       )}
 
-      <main className="grid grid-cols-1 xl:grid-cols-3 gap-6 h-[calc(100vh-12rem)]">
-        <div className="xl:col-span-1 class-timetable-wrapper">
+      <main className="flex flex-col xl:flex-row gap-4 h-[calc(100vh-12rem)] relative">
+        <div 
+          className="class-timetable-wrapper h-full flex flex-col min-h-0 overflow-hidden"
+          style={{ width: isXlScreen ? `${leftWidth}%` : '100%', minWidth: isXlScreen ? '20%' : 'auto' }}
+        >
           {selectedClass && (
             <TimetableGrid
               title={`${selectedClass.name} órarendje`}
@@ -195,8 +236,17 @@ const Main: React.FC = () => {
           )}
         </div>
 
-        <div className="xl:col-span-2 grid grid-cols-1 lg:grid-cols-4 gap-6 teacher-timetable-wrapper">
-          <div className="lg:col-span-3">
+        {/* Resizer Handle */}
+        <div 
+          className="hidden xl:block w-1.5 hover:w-2.5 bg-gray-300 hover:bg-blue-500 dark:bg-gray-700 dark:hover:bg-blue-500 cursor-col-resize self-stretch transition-all rounded active:bg-blue-600 z-10"
+          onMouseDown={startResize}
+          title="Húzd a méretezéshez"
+        />
+
+        <div 
+          className="flex-1 min-w-0 teacher-timetable-wrapper h-full grid grid-cols-1 lg:grid-cols-4 gap-6 min-h-0"
+        >
+          <div className="lg:col-span-3 h-full flex flex-col min-h-0 overflow-hidden">
             {selectedTeacher && (
               <TimetableGrid
                 title={`${selectedTeacher.name} órarendje`}

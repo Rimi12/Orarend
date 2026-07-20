@@ -139,7 +139,7 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
             </button>
         </div>
       </div>
-      <div ref={scrollableContainerRef} className="flex-grow overflow-auto">
+      <div ref={scrollableContainerRef} className="flex-grow overflow-y-auto overflow-x-hidden">
         <table className="w-full h-full border-collapse table-fixed">
           <thead>
             <tr className="border-b-2 border-gray-200 dark:border-gray-700">
