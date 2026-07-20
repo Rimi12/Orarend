@@ -1,0 +1,6 @@
+{
+  "name": "Órarendkészítő Kézzel v2.1.0",
+  "description": "Egy interaktív, kézi órarendkészítő alkalmazás Visszavonás/Mégis funkcióval. Lehetővé teszi a tantárgyfelosztások alapján tanári és osztály órarendek összeállítását. Támogatja a párhuzamos (differenciált) órák felvételét, és finomított ütközéskezelési logikával rendelkezik. Automatikus böngésző-mentéssel, Google Drive integrációval, fejlett nyomtatási beállításokkal és egy rendelkezésre állási beosztás generátorral.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}

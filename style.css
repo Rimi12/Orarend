@@ -1,0 +1,35 @@
+@import url('https://rsms.me/inter/inter.css');
+
+body {
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.text-xxs {
+    font-size: 0.65rem; /* 10.4px */
+    line-height: 0.8rem;
+}
+
+/* Custom scrollbar for unplaced lessons list */
+.unplaced-lessons-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.unplaced-lessons-list::-webkit-scrollbar-track {
+  background: #edf2f7; /* gray-200 */
+  border-radius: 10px;
+}
+
+.dark .unplaced-lessons-list::-webkit-scrollbar-track {
+  background: #2d3748; /* gray-800 */
+}
+
+.unplaced-lessons-list::-webkit-scrollbar-thumb {
+  background: #a0aec0; /* gray-400 */
+  border-radius: 10px;
+}
+
+.unplaced-lessons-list::-webkit-scrollbar-thumb:hover {
+  background: #718096; /* gray-500 */
+}
