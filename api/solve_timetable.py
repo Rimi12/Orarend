@@ -188,15 +188,44 @@ def solve_cp_sat(data):
 
     # Constraint 7: Swimming exceptions (3. osztály Wed 1-2, 5. osztály Fri 1-2)
     for c_id, indices in class_to_lessons.items():
-        c_name = class_dict.get(c_id, {}).get("name", "")
+        c_name = class_dict.get(c_id, {}).get("name", "").lower()
         pe_indices = [idx for idx in indices if "testnevelés" in lesson_units[idx]["subject_name"].lower() or "tesi" in lesson_units[idx]["subject_name"].lower()]
 
-        if "3." in c_name and len(pe_indices) >= 2:
-            # Wed (d=2), period 0 and 1
-            model.Add(sum(X[pe_indices[0], 2, 0] + X[pe_indices[1], 2, 1] for _ in [0]) >= 1)
-        elif "5." in c_name and len(pe_indices) >= 2:
-            # Fri (d=4), period 0 and 1
-            model.Add(sum(X[pe_indices[0], 4, 0] + X[pe_indices[1], 4, 1] for _ in [0]) >= 1)
+        is_grade_3 = "3." in c_name or "3/a" in c_name or "3/b" in c_name or c_name.startswith("3 ") or c_name == "3"
+        is_grade_5 = "5." in c_name or "5/a" in c_name or "5/b" in c_name or c_name.startswith("5 ") or c_name == "5"
+
+        if is_grade_3 and len(pe_indices) >= 2:
+            # Wednesday (d=2): period 0 (1. óra) MUST be PE, AND period 1 (2. óra) MUST be PE
+            model.Add(sum(X[idx, 2, 0] for idx in pe_indices) == 1)
+            model.Add(sum(X[idx, 2, 1] for idx in pe_indices) == 1)
+
+        if is_grade_5 and len(pe_indices) >= 2:
+            # Friday (d=4): period 0 (1. óra) MUST be PE, AND period 1 (2. óra) MUST be PE
+            model.Add(sum(X[idx, 4, 0] for idx in pe_indices) == 1)
+            model.Add(sum(X[idx, 4, 1] for idx in pe_indices) == 1)
+
+    # Constraint 8: Painter practice blocks (9. festő & 10. festő)
+    for c_id, indices in class_to_lessons.items():
+        c_name = class_dict.get(c_id, {}).get("name", "").lower()
+        if "festő" in c_name or "festo" in c_name:
+            practice_indices = [idx for idx in indices if "gyakorlat" in lesson_units[idx]["subject_name"].lower() or "szakmai" in lesson_units[idx]["subject_name"].lower()]
+            if len(practice_indices) > 0:
+                # For each day d, create a boolean indicating if practice is active on day d
+                day_active = [model.NewBoolVar(f"practice_day_{c_id}_{d}") for d in range(DAYS)]
+                for d in range(DAYS):
+                    model.Add(sum(X[idx, d, p] for idx in practice_indices for p in range(PERIODS)) >= 1).OnlyEnforceIf(day_active[d])
+                    model.Add(sum(X[idx, d, p] for idx in practice_indices for p in range(PERIODS)) == 0).OnlyEnforceIf(day_active[d].Not())
+                
+                # Practice days must be exactly 2 consecutive days
+                model.Add(sum(day_active) == 2)
+                # Consecutive condition: day_active[d] and day_active[d+1]
+                consecutive_pairs = []
+                for d in range(DAYS - 1):
+                    pair = model.NewBoolVar(f"pair_{c_id}_{d}")
+                    model.AddBoolAnd([day_active[d], day_active[d+1]]).OnlyEnforceIf(pair)
+                    model.AddBoolOr([day_active[d].Not(), day_active[d+1].Not()]).OnlyEnforceIf(pair.Not())
+                    consecutive_pairs.append(pair)
+                model.Add(sum(consecutive_pairs) == 1)
 
     # Solve model
     solver = cp_model.CpSolver()
