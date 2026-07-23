@@ -217,28 +217,31 @@ def solve_cp_sat(data):
         is_grade_3 = "3." in c_name or "3/a" in c_name or "3/b" in c_name or c_name.startswith("3 ") or c_name == "3"
         is_grade_5 = "5." in c_name or "5/a" in c_name or "5/b" in c_name or c_name.startswith("5 ") or c_name == "5"
 
-        # How many PE hours do we have vs how many days
         num_pe = len(pe_indices)
 
-        for d in range(DAYS):
-            # Determine how many PE lessons are required on this day
-            if is_grade_3 and d == 2:  # Wednesday
-                required_pe = 2  # Swimming: 1. and 2. óra
-                model.Add(sum(X[idx, d, 0] for idx in pe_indices) == 1)
-                model.Add(sum(X[idx, d, 1] for idx in pe_indices) == 1)
-            elif is_grade_5 and d == 4:  # Friday
-                required_pe = 2  # Swimming: 1. and 2. óra
-                model.Add(sum(X[idx, d, 0] for idx in pe_indices) == 1)
-                model.Add(sum(X[idx, d, 1] for idx in pe_indices) == 1)
-            else:
-                required_pe = 1
+        # Calculate total required PE (1 per day + extras for swimming days)
+        total_required = DAYS  # 5 normal days * 1
+        if is_grade_3:
+            total_required += 1  # Wednesday needs 2 instead of 1
+        if is_grade_5:
+            total_required += 1  # Friday needs 2 instead of 1
 
-            # Enforce the required PE count per day
-            if num_pe >= required_pe:
+        for d in range(DAYS):
+            is_swimming_day = (is_grade_3 and d == 2) or (is_grade_5 and d == 4)
+            required_pe = 2 if is_swimming_day else 1
+
+            # Swimming day: must be in 1. and 2. óra
+            if is_swimming_day and num_pe >= 2:
+                model.Add(sum(X[idx, d, 0] for idx in pe_indices) == 1)
+                model.Add(sum(X[idx, d, 1] for idx in pe_indices) == 1)
+
+            # Enforce PE count per day only if we have enough PE lessons total
+            if num_pe >= total_required:
+                # We have exactly enough — enforce exactly required_pe per day
                 model.Add(sum(X[idx, d, p] for idx in pe_indices for p in range(PERIODS)) == required_pe)
             else:
-                # Not enough PE lessons — enforce at most 1
-                model.Add(sum(X[idx, d, p] for idx in pe_indices for p in range(PERIODS)) <= 1)
+                # Not enough for strict distribution — enforce at most 1 (or 2 for swimming)
+                model.Add(sum(X[idx, d, p] for idx in pe_indices for p in range(PERIODS)) <= required_pe)
 
     # Constraint 8: Painter practice blocks (9. festő & 10. festő)
     for c_id, indices in class_to_lessons.items():
@@ -265,7 +268,8 @@ def solve_cp_sat(data):
 
     # Solve model
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 8.0
+    solver.parameters.max_time_in_seconds = 15.0
+    solver.parameters.num_search_workers = 2
     status = solver.Solve(model)
 
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
@@ -281,7 +285,8 @@ def solve_cp_sat(data):
                         })
         return {"status": "OPTIMAL" if status == cp_model.OPTIMAL else "FEASIBLE", "placedLessons": placed_lessons}
     else:
-        return {"status": "INFEASIBLE", "message": "No valid timetable solution found for the given rules"}
+        status_name = {cp_model.INFEASIBLE: 'INFEASIBLE', cp_model.UNKNOWN: 'UNKNOWN', cp_model.MODEL_INVALID: 'MODEL_INVALID'}.get(status, f'STATUS_{status}')
+        return {"status": "INFEASIBLE", "message": f"CP-SAT solver status: {status_name}. No valid timetable found with current constraints. Try relaxing some rules or check if all weekly hours are feasible."}
 
 
 # Handler for Vercel Serverless Function

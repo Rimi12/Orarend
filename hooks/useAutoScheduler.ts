@@ -440,11 +440,14 @@ export const useAutoScheduler = () => {
           setProgress(100);
           setIsGenerating(false);
           return;
+        } else {
+          console.warn('[auto-scheduler] CP-SAT returned non-optimal status:', data.status, data.message || '');
         }
       }
     } catch (err) {
       console.warn('[auto-scheduler] OR-Tools API endpoint unavailable, using client-side CSP solver fallback');
     }
+
 
     // Client-side CSP Solver Fallback
     setTimeout(() => {
