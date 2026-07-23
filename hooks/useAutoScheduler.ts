@@ -152,6 +152,20 @@ export const useAutoScheduler = () => {
           });
 
           const is9or10Grade = className.includes('9.') || className.includes('10.');
+
+          // Rule: Next to Napközi, ONLY Habilitáció is allowed (by a different teacher)
+          if (hasNapközi) {
+            const invalidParallelLessons = lessonsInSlot.filter(l => {
+              const sLower = l.subjectName.toLowerCase();
+              const isNap = sLower.includes('napközi') || sLower.includes('szabadidő') || sLower.includes('tanulószoba');
+              const isHab = sLower.includes('habilitáció') || sLower.includes('rehabilitáció') || sLower.includes('logopédia');
+              return !isNap && !isHab;
+            });
+            if (invalidParallelLessons.length > 0) {
+              score -= 200000 * invalidParallelLessons.length;
+            }
+          }
+
           const isAllowedException = (hasHab && hasNapközi) || (is9or10Grade && hasHab && hasTesi);
 
           if (!isAllowedException) {
