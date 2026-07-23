@@ -82,7 +82,7 @@ def solve_cp_sat(data):
                     if d < len(avail) and p < len(avail[d]) and avail[d][p] is False:
                         model.Add(X[i, d, p] == 0)
 
-    # Constraint 3: Teacher collision (same teacher at same d,p cannot be in different classes)
+    # Constraint 3: Strict Teacher Collision (No teacher can teach 2 lessons at the same time!)
     teacher_to_lessons = {}
     for i, unit in enumerate(lesson_units):
         t_id = unit["teacher_id"]
@@ -93,24 +93,7 @@ def solve_cp_sat(data):
     for t_id, indices in teacher_to_lessons.items():
         for d in range(DAYS):
             for p in range(PERIODS):
-                # If they share the exact same classId (EGYMI merged class exception), allowed
-                # Group by class_id
-                class_groups = {}
-                for idx in indices:
-                    cid = lesson_units[idx]["class_id"]
-                    if cid not in class_groups:
-                        class_groups[cid] = []
-                    class_groups[cid].append(idx)
-
-                # Teacher can teach at most 1 different class at (d,p)
-                class_active_vars = []
-                for cid, c_indices in class_groups.items():
-                    c_active = model.NewBoolVar(f"t_class_active_{t_id}_{cid}_{d}_{p}")
-                    model.Add(sum(X[idx, d, p] for idx in c_indices) >= 1).OnlyEnforceIf(c_active)
-                    model.Add(sum(X[idx, d, p] for idx in c_indices) == 0).OnlyEnforceIf(c_active.Not())
-                    class_active_vars.append(c_active)
-
-                model.Add(sum(class_active_vars) <= 1)
+                model.Add(sum(X[idx, d, p] for idx in indices) <= 1)
 
     # Constraint 4: Class & Group Collisions with Habilitáció Exceptions
     class_to_lessons = {}
@@ -124,7 +107,6 @@ def solve_cp_sat(data):
         for d in range(DAYS):
             for p in range(PERIODS):
                 # Standard class collision: max 1 lesson for whole-class, or 1 per distinct group
-                # Group by group_name
                 group_map = {}
                 for idx in indices:
                     g_name = lesson_units[idx]["group_name"]
@@ -132,7 +114,6 @@ def solve_cp_sat(data):
                         group_map[g_name] = []
                     group_map[g_name].append(idx)
 
-                # If whole-class lesson (g_name == "") active, no other lesson can be active unless exception
                 has_whole = "" in group_map
                 if has_whole:
                     whole_indices = group_map[""]
@@ -163,14 +144,31 @@ def solve_cp_sat(data):
                             if not (allow_nap_hab or allow_tesi_hab):
                                 model.Add(X[idx_w, d, p] + X[idx_other, d, p] <= 1)
 
-    # Constraint 5: Academic lessons 1-7 period bound (period p <= 6)
+    # Constraint 5: Subject-specific time windows
     for i, unit in enumerate(lesson_units):
         s_name = unit["subject_name"].lower()
         is_napközi = "napközi" in s_name or "tanulószoba" in s_name or "szabadidő" in s_name
         is_habilitáció = "habilitáció" in s_name or "rehabilitáció" in s_name
 
-        if not is_napközi and not is_habilitáció:
-          model.Add(X[i, d, 7] == 0 for d in range(DAYS))
+        if is_napközi:
+            # Napközi can ONLY be in periods 4, 5, 6, 7 (5., 6., 7., 8. óra)
+            for d in range(DAYS):
+                for p in range(4): # 0, 1, 2, 3 (1-4. óra) forbidden
+                    model.Add(X[i, d, p] == 0)
+
+        elif is_habilitáció:
+            # Habilitáció can ONLY be in periods 4, 5, 6 (5., 6., 7. óra)
+            for d in range(DAYS):
+                model.Add(X[i, d, 0] == 0)
+                model.Add(X[i, d, 1] == 0)
+                model.Add(X[i, d, 2] == 0)
+                model.Add(X[i, d, 3] == 0)
+                model.Add(X[i, d, 7] == 0)
+
+        else:
+            # Academic lessons cannot be in period 7 (8. óra)
+            for d in range(DAYS):
+                model.Add(X[i, d, 7] == 0)
 
     # Constraint 6: Napközi must follow academic lessons without gap on same day
     for c_id, indices in class_to_lessons.items():

@@ -75,10 +75,8 @@ export const useAutoScheduler = () => {
       Object.keys(slots).forEach(slotKey => {
         const count = slots[slotKey].length;
         if (count > 1) {
-          const classIds = new Set(slots[slotKey].map(l => l.classId));
-          if (classIds.size > 1) {
-            score -= 200000 * (count - 1);
-          }
+          // Teacher cannot teach 2 lessons at the same time!
+          score -= 200000 * (count - 1);
         }
       });
 
@@ -234,14 +232,22 @@ export const useAutoScheduler = () => {
         }
       });
 
-      // 5. Academic lessons 1-7 period bound (period p <= 6)
+      // 5. Subject-specific time windows
       lessons.forEach(l => {
         const sLower = l.subjectName.toLowerCase();
         const isNapközi = sLower.includes('napközi') || sLower.includes('tanulószoba') || sLower.includes('szabadidő');
         const isHabilitáció = sLower.includes('habilitáció') || sLower.includes('rehabilitáció');
 
-        if (!isNapközi && !isHabilitáció && l.period >= 7) {
-          score -= 200000;
+        if (isNapközi) {
+          if (l.period < 4) {
+            score -= 200000; // Napközi forbidden in 1-4. óra
+          }
+        } else if (isHabilitáció) {
+          if (l.period < 4 || l.period > 6) {
+            score -= 200000; // Habilitáció only allowed in 5., 6., 7. óra
+          }
+        } else if (l.period >= 7) {
+          score -= 200000; // Academic lessons forbidden in 8. óra
         }
       });
 
