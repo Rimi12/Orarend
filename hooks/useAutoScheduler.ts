@@ -36,9 +36,9 @@ export const useAutoScheduler = () => {
   const calculateFitness = useCallback((genes: Chromosome['genes'], allTeachers: Teacher[]): number => {
     let score = 0;
 
-    // Index mappings to speed up checking
+    // Index mappings
     const teacherLessons: Record<string, { day: number; period: number; classId: string; groupName: string }[]> = {};
-    const classLessons: Record<string, { day: number; period: number; groupName: string; subjectName: string }[]> = {};
+    const classLessons: Record<string, { day: number; period: number; groupName: string; subjectName: string; allocationId: string }[]> = {};
 
     genes.forEach(gene => {
       const { allocation, day, period } = gene;
@@ -62,7 +62,7 @@ export const useAutoScheduler = () => {
 
       // Add to class lookup
       if (!classLessons[classId]) classLessons[classId] = [];
-      classLessons[classId].push({ day, period, groupName, subjectName });
+      classLessons[classId].push({ day, period, groupName, subjectName, allocationId: allocation.id });
     });
 
     // 2. Teacher collisions (Szigorú Hard Constraint)
@@ -106,9 +106,12 @@ export const useAutoScheduler = () => {
       });
     });
 
-    // 3. Class constraints (Hard & Soft Constraints)
+    // 3. Class constraints & EGYMI rules
     Object.keys(classLessons).forEach(classId => {
       const lessons = classLessons[classId];
+      const cls = findClass(classId);
+      const className = cls?.name || '';
+
       const slots: Record<string, typeof lessons> = {};
       lessons.forEach(l => {
         const slotKey = `${l.day}-${l.period}`;
@@ -116,76 +119,166 @@ export const useAutoScheduler = () => {
         slots[slotKey].push(l);
       });
 
+      // Parallel lesson checks with Habilitáció exceptions
       Object.keys(slots).forEach(slotKey => {
         const lessonsInSlot = slots[slotKey];
         if (lessonsInSlot.length > 1) {
-          const groups = lessonsInSlot.map(l => l.groupName);
-          const hasWholeClass = groups.some(g => g === '');
-          if (hasWholeClass) {
-            score -= 200000 * (lessonsInSlot.length - 1);
-          } else {
-            const uniqueGroups = new Set(groups);
-            if (uniqueGroups.size < groups.length) {
-              score -= 200000 * (groups.length - uniqueGroups.size);
+          // Check for Habilitáció parallel exceptions
+          const hasHab = lessonsInSlot.some(l => {
+            const sLower = l.subjectName.toLowerCase();
+            return sLower.includes('habilitáció') || sLower.includes('rehabilitáció') || sLower.includes('logopédia');
+          });
+
+          const hasNapközi = lessonsInSlot.some(l => {
+            const sLower = l.subjectName.toLowerCase();
+            return sLower.includes('napközi') || sLower.includes('szabadidő') || sLower.includes('tanulószoba');
+          });
+
+          const hasTesi = lessonsInSlot.some(l => {
+            const sLower = l.subjectName.toLowerCase();
+            return sLower.includes('testnevelés') || sLower.includes('tesi');
+          });
+
+          const is9or10Grade = className.includes('9.') || className.includes('10.');
+
+          // Exception 1: Habilitáció + Napközi is allowed
+          // Exception 2: In 9th/10th grade, Habilitáció + Tesi is allowed
+          const isAllowedException = (hasHab && hasNapközi) || (is9or10Grade && hasHab && hasTesi);
+
+          if (!isAllowedException) {
+            const groups = lessonsInSlot.map(l => l.groupName);
+            const hasWholeClass = groups.some(g => g === '');
+            if (hasWholeClass) {
+              score -= 200000 * (lessonsInSlot.length - 1);
+            } else {
+              const uniqueGroups = new Set(groups);
+              if (uniqueGroups.size < groups.length) {
+                score -= 200000 * (groups.length - uniqueGroups.size);
+              }
             }
           }
         }
       });
 
-      // 4. Class Gaps / Lyukasóra-mentesség (Szigorú Hard Constraint)
-      const days: Record<number, number[]> = {};
+      // 4. Class Gaps / Lyukasóra-mentesség & Continuity
+      const days: Record<number, typeof lessons> = {};
       lessons.forEach(l => {
         if (!days[l.day]) days[l.day] = [];
-        days[l.day].push(l.period);
+        days[l.day].push(l);
       });
 
       Object.keys(days).forEach(dStr => {
-        const pList = days[Number(dStr)].sort((a, b) => a - b);
+        const dayNum = Number(dStr);
+        const dayLessons = days[dayNum];
+        const pList = dayLessons.map(l => l.period).sort((a, b) => a - b);
+
         if (pList.length > 0) {
           const minP = pList[0];
           const maxP = pList[pList.length - 1];
-          
+
+          // Strict: no empty periods between min and max
           for (let p = minP + 1; p < maxP; p++) {
             if (!pList.includes(p)) {
-              score -= 200000;
+              score -= 200000; // Class gap penalty!
             }
           }
 
+          // Class must start at period 1 (index 0)
           if (minP > 0) {
             score -= 50000 * minP;
+          }
+
+          // Napközi / Tanulószoba MUST be after all academic lessons on that day
+          const maxAcademicPeriod = Math.max(
+            -1,
+            ...dayLessons
+              .filter(l => {
+                const sLower = l.subjectName.toLowerCase();
+                return !sLower.includes('napközi') && !sLower.includes('tanulószoba') && !sLower.includes('szabadidő');
+              })
+              .map(l => l.period)
+          );
+
+          const minNapköziPeriod = Math.min(
+            99,
+            ...dayLessons
+              .filter(l => {
+                const sLower = l.subjectName.toLowerCase();
+                return sLower.includes('napközi') || sLower.includes('tanulószoba') || sLower.includes('szabadidő');
+              })
+              .map(l => l.period)
+          );
+
+          // Academic lesson scheduled AFTER Napközi on the same day is forbidden
+          if (minNapköziPeriod !== 99 && maxAcademicPeriod > minNapköziPeriod) {
+            score -= 200000;
           }
         }
       });
 
-      // 5. Napközi & Academic timing (Szigorú Hard & Soft Constraints)
+      // 5. Academic lessons time window (1-7. óra -> period indexes 0-6)
       lessons.forEach(l => {
-        const isNapközi = l.subjectName.toLowerCase().includes('napközi') || l.subjectName.toLowerCase().includes('szabadidő');
-        const isAcademic = !isNapközi && 
-                          !l.subjectName.toLowerCase().includes('habilitáció') && 
-                          !l.subjectName.toLowerCase().includes('rehabilitáció') &&
-                          !l.subjectName.toLowerCase().includes('kollégium') &&
-                          !l.subjectName.toLowerCase().includes('fejlesztés') &&
-                          !l.subjectName.toLowerCase().includes('logopédia');
+        const sLower = l.subjectName.toLowerCase();
+        const isNapközi = sLower.includes('napközi') || sLower.includes('tanulószoba') || sLower.includes('szabadidő');
+        const isHabilitáció = sLower.includes('habilitáció') || sLower.includes('rehabilitáció');
 
-        if (isNapközi && l.period < 4) {
+        // Rendes tanóra cannot be in period >= 7 (8. óra and above)
+        if (!isNapközi && !isHabilitáció && l.period >= 7) {
           score -= 200000;
         }
-
-        if (isAcademic && l.period >= 4) {
-          score -= 30000;
-        }
       });
 
-      // Subject daily distribution (Soft Constraint)
-      const daySubjects: Record<string, Set<string>> = {};
-      lessons.forEach(l => {
-        const key = `${l.day}`;
-        if (!daySubjects[key]) daySubjects[key] = new Set();
-        if (daySubjects[key].has(l.subjectName) && l.subjectName !== 'Napközi') {
-          score -= 20;
-        }
-        daySubjects[key].add(l.subjectName);
+      // 6. Testnevelés (PE) & Úszás (Swimming) rules
+      const peLessons = lessons.filter(l => {
+        const sLower = l.subjectName.toLowerCase();
+        return sLower.includes('testnevelés') || sLower.includes('tesi');
       });
+
+      if (peLessons.length > 0) {
+        const peDays = new Set(peLessons.map(l => l.day));
+
+        // Exception: 3. osztály swimming on Wednesday (day 2, period 0 and 1)
+        if (className.includes('3.')) {
+          const wedPePeriods = peLessons.filter(l => l.day === 2).map(l => l.period);
+          const hasWedSwimming = wedPePeriods.includes(0) && wedPePeriods.includes(1);
+          if (!hasWedSwimming) {
+            score -= 200000;
+          }
+        }
+        // Exception: 5. osztály swimming on Friday (day 4, period 0 and 1)
+        else if (className.includes('5.')) {
+          const friPePeriods = peLessons.filter(l => l.day === 4).map(l => l.period);
+          const hasFriSwimming = friPePeriods.includes(0) && friPePeriods.includes(1);
+          if (!hasFriSwimming) {
+            score -= 200000;
+          }
+        } 
+        // Standard classes: PE should be present on all days where class has lessons
+        else {
+          for (let d = 0; d < 5; d++) {
+            if (days[d] && days[d].length > 0 && !peDays.has(d)) {
+              score -= 30000; // Soft penalty if PE is missing on a school day
+            }
+          }
+        }
+      }
+
+      // 7. Festő osztályok (9. festő és 10. festő) Gyakorlati Tömbösítés
+      if (className.includes('festő') || className.includes('festo')) {
+        const practiceLessons = lessons.filter(l => {
+          const sLower = l.subjectName.toLowerCase();
+          return sLower.includes('gyakorlat') || sLower.includes('szakmai');
+        });
+
+        if (practiceLessons.length > 0) {
+          const practiceDays = Array.from(new Set(practiceLessons.map(l => l.day))).sort((a, b) => a - b);
+          // Check if practice days are 2 consecutive days (e.g. [0,1] or [1,2] or [2,3] or [3,4])
+          const isConsecutive = practiceDays.length === 2 && (practiceDays[1] - practiceDays[0] === 1);
+          if (!isConsecutive) {
+            score -= 100000; // Penalty if practice is not 2 consecutive days
+          }
+        }
+      }
     });
 
     return score;
@@ -202,14 +295,12 @@ export const useAutoScheduler = () => {
 
     if (currentFitness >= 0) return currentGenes; // Already perfect!
 
-    // Shuffle gene indices to avoid bias
     const indices = Array.from({ length: currentGenes.length }, (_, i) => i);
     for (let i = indices.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [indices[i], indices[j]] = [indices[j], indices[i]];
     }
 
-    // Try improving up to 30 genes per pass to keep execution time under 5ms
     let tries = 0;
     for (const i of indices) {
       if (tries > 30) break;
@@ -309,13 +400,11 @@ export const useAutoScheduler = () => {
         }
       });
 
-      // Optimal GA Parameters
       const populationSize = 60;
       const maxGenerations = 300;
       const mutationRate = 0.25;
       const crossoverRate = 0.6;
 
-      // Fast random chromosome creation (NO heavy sync local search during init)
       const createRandomChromosome = (): Chromosome => {
         const genes = finalLessonsToPlace.map(alloc => {
           const slots = allocationAvailableSlots.get(alloc.id)!;
@@ -333,7 +422,6 @@ export const useAutoScheduler = () => {
         };
       };
 
-      // Initialize population lightweight
       let population: Chromosome[] = [];
       for (let i = 0; i < populationSize; i++) {
         population.push(createRandomChromosome());
@@ -346,7 +434,7 @@ export const useAutoScheduler = () => {
           return;
         }
 
-        const chunkCount = 10; // 10 generations per tick to keep UI buttery smooth
+        const chunkCount = 10;
         for (let c = 0; c < chunkCount; c++) {
           if (currentGen >= maxGenerations) break;
 
@@ -354,19 +442,16 @@ export const useAutoScheduler = () => {
 
           const newPopulation: Chromosome[] = [];
 
-          // Elitism: carry top 5
           for (let i = 0; i < 5; i++) {
             newPopulation.push(population[i]);
           }
 
-          // Apply targeted local search ONLY to top 1 elite to boost progress
           const optimizedTop = runLocalSearch(newPopulation[0].genes, teachers, allocationAvailableSlots);
           newPopulation[0] = {
             genes: optimizedTop,
             fitness: calculateFitness(optimizedTop, teachers)
           };
 
-          // Selection & reproduction
           while (newPopulation.length < populationSize) {
             const tournamentSelect = () => {
               const index1 = Math.floor(Math.random() * populationSize);
@@ -380,7 +465,6 @@ export const useAutoScheduler = () => {
             let childGenes1 = parent1.genes.map(g => ({ ...g }));
             let childGenes2 = parent2.genes.map(g => ({ ...g }));
 
-            // Crossover
             if (Math.random() < crossoverRate && childGenes1.length > 1) {
               const cutPoint = Math.floor(Math.random() * childGenes1.length);
               for (let i = cutPoint; i < childGenes1.length; i++) {
@@ -390,7 +474,6 @@ export const useAutoScheduler = () => {
               }
             }
 
-            // Mutation
             const mutate = (genes: Chromosome['genes']) => {
               return genes.map(g => {
                 if (Math.random() < mutationRate) {
@@ -428,7 +511,6 @@ export const useAutoScheduler = () => {
         if (currentGen < maxGenerations) {
           setTimeout(runGenerationChunk, 15);
         } else {
-          // Final optimization pass on best solution
           const finalOptimizedGenes = runLocalSearch(best.genes, teachers, allocationAvailableSlots);
           const finalFitness = calculateFitness(finalOptimizedGenes, teachers);
           
@@ -436,7 +518,6 @@ export const useAutoScheduler = () => {
           setProgress(100);
           setIsGenerating(false);
 
-          // Apply genes back to placements
           const newPlacedLessons: PlacedLesson[] = [...preservedLessons];
           finalOptimizedGenes.forEach(gene => {
             newPlacedLessons.push({
