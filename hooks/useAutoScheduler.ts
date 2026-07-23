@@ -232,22 +232,43 @@ export const useAutoScheduler = () => {
         }
       });
 
-      // 5. Subject-specific time windows
+      // 5. Subject-specific time windows based on Grade Level
       lessons.forEach(l => {
         const sLower = l.subjectName.toLowerCase();
         const isNapközi = sLower.includes('napközi') || sLower.includes('tanulószoba') || sLower.includes('szabadidő');
         const isHabilitáció = sLower.includes('habilitáció') || sLower.includes('rehabilitáció');
 
-        if (isNapközi) {
-          if (l.period < 4) {
-            score -= 200000; // Napközi forbidden in 1-4. óra
+        const is7or8Grade = className.includes('7.') || className.includes('8.');
+        const is4Grade = className.includes('4.');
+
+        if (is7or8Grade) {
+          if (isNapközi || isHabilitáció) {
+            if (l.period < 6) { // Forbidden in 1-6. óra for 7-8. grade
+              score -= 200000;
+            }
+          } else {
+            if (l.period >= 6) { // Forbidden in 7-8. óra for academic in 7-8. grade
+              score -= 200000;
+            }
           }
-        } else if (isHabilitáció) {
-          if (l.period < 4 || l.period > 6) {
-            score -= 200000; // Habilitáció only allowed in 5., 6., 7. óra
+        } else if (is4Grade) {
+          if (isNapközi || isHabilitáció) {
+            if (l.period < 5) { // Forbidden in 1-5. óra for 4. grade
+              score -= 200000;
+            }
+          } else {
+            if (l.period >= 5) { // Forbidden in 6-8. óra for academic in 4. grade
+              score -= 200000;
+            }
           }
-        } else if (l.period >= 7) {
-          score -= 200000; // Academic lessons forbidden in 8. óra
+        } else {
+          if (isNapközi || isHabilitáció) {
+            if (l.period < 4) { // Forbidden in 1-4. óra
+              score -= 200000;
+            }
+          } else if (l.period >= 7) { // Forbidden in 8. óra for academic
+            score -= 200000;
+          }
         }
       });
 
