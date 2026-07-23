@@ -36,7 +36,6 @@ export const useAutoScheduler = () => {
   const calculateFitness = useCallback((genes: Chromosome['genes'], allTeachers: Teacher[]): number => {
     let score = 0;
 
-    // Index mappings
     const teacherLessons: Record<string, { day: number; period: number; classId: string; groupName: string }[]> = {};
     const classLessons: Record<string, { day: number; period: number; groupName: string; subjectName: string; allocationId: string }[]> = {};
 
@@ -50,22 +49,20 @@ export const useAutoScheduler = () => {
       const teacherId = allocation.teacherId;
       const classId = allocation.classId;
 
-      // 1. Teacher availability (Szigorú Hard Constraint)
+      // 1. Teacher availability (Hard Constraint)
       const isTeacherAvailable = teacher?.availability[day]?.[period] ?? true;
       if (!isTeacherAvailable) {
         score -= 200000;
       }
 
-      // Add to teacher lookup
       if (!teacherLessons[teacherId]) teacherLessons[teacherId] = [];
       teacherLessons[teacherId].push({ day, period, classId, groupName });
 
-      // Add to class lookup
       if (!classLessons[classId]) classLessons[classId] = [];
       classLessons[classId].push({ day, period, groupName, subjectName, allocationId: allocation.id });
     });
 
-    // 2. Teacher collisions (Szigorú Hard Constraint)
+    // 2. Teacher collisions (Hard Constraint)
     Object.keys(teacherLessons).forEach(teacherId => {
       const lessons = teacherLessons[teacherId];
       const slots: Record<string, typeof lessons> = {};
@@ -85,25 +82,42 @@ export const useAutoScheduler = () => {
         }
       });
 
-      // Teacher Lyukasóra (Soft Constraint)
+      // Teacher Lyukasóra & Daily Minimum (Hard & Soft Constraints)
       const days: Record<number, number[]> = {};
       lessons.forEach(l => {
         if (!days[l.day]) days[l.day] = [];
         days[l.day].push(l.period);
       });
 
+      let teacherGapsThisWeek = 0;
       Object.keys(days).forEach(dStr => {
         const pList = days[Number(dStr)].sort((a, b) => a - b);
+        
+        // Minimum 2 hours per day if working
+        if (pList.length === 1) {
+          score -= 100000; // Hard penalty for 1 hour working day
+        }
+
         if (pList.length > 1) {
           const minP = pList[0];
           const maxP = pList[pList.length - 1];
+          let dailyGaps = 0;
           for (let p = minP + 1; p < maxP; p++) {
             if (!pList.includes(p)) {
-              score -= 50;
+              dailyGaps++;
             }
           }
+
+          if (dailyGaps > 1) {
+            score -= 100000; // Max 1 gap per day
+          }
+          teacherGapsThisWeek += dailyGaps;
         }
       });
+
+      if (teacherGapsThisWeek > 3) {
+        score -= 100000; // Max 3 gaps per week
+      }
     });
 
     // 3. Class constraints & EGYMI rules
@@ -119,11 +133,9 @@ export const useAutoScheduler = () => {
         slots[slotKey].push(l);
       });
 
-      // Parallel lesson checks with Habilitáció exceptions
       Object.keys(slots).forEach(slotKey => {
         const lessonsInSlot = slots[slotKey];
         if (lessonsInSlot.length > 1) {
-          // Check for Habilitáció parallel exceptions
           const hasHab = lessonsInSlot.some(l => {
             const sLower = l.subjectName.toLowerCase();
             return sLower.includes('habilitáció') || sLower.includes('rehabilitáció') || sLower.includes('logopédia');
@@ -140,9 +152,6 @@ export const useAutoScheduler = () => {
           });
 
           const is9or10Grade = className.includes('9.') || className.includes('10.');
-
-          // Exception 1: Habilitáció + Napközi is allowed
-          // Exception 2: In 9th/10th grade, Habilitáció + Tesi is allowed
           const isAllowedException = (hasHab && hasNapközi) || (is9or10Grade && hasHab && hasTesi);
 
           if (!isAllowedException) {
@@ -168,27 +177,23 @@ export const useAutoScheduler = () => {
       });
 
       Object.keys(days).forEach(dStr => {
-        const dayNum = Number(dStr);
-        const dayLessons = days[dayNum];
+        const dayLessons = days[Number(dStr)];
         const pList = dayLessons.map(l => l.period).sort((a, b) => a - b);
 
         if (pList.length > 0) {
           const minP = pList[0];
           const maxP = pList[pList.length - 1];
 
-          // Strict: no empty periods between min and max
           for (let p = minP + 1; p < maxP; p++) {
             if (!pList.includes(p)) {
-              score -= 200000; // Class gap penalty!
+              score -= 200000;
             }
           }
 
-          // Class must start at period 1 (index 0)
           if (minP > 0) {
             score -= 50000 * minP;
           }
 
-          // Napközi / Tanulószoba MUST be after all academic lessons on that day
           const maxAcademicPeriod = Math.max(
             -1,
             ...dayLessons
@@ -209,20 +214,18 @@ export const useAutoScheduler = () => {
               .map(l => l.period)
           );
 
-          // Academic lesson scheduled AFTER Napközi on the same day is forbidden
           if (minNapköziPeriod !== 99 && maxAcademicPeriod > minNapköziPeriod) {
             score -= 200000;
           }
         }
       });
 
-      // 5. Academic lessons time window (1-7. óra -> period indexes 0-6)
+      // 5. Academic lessons 1-7 period bound (period p <= 6)
       lessons.forEach(l => {
         const sLower = l.subjectName.toLowerCase();
         const isNapközi = sLower.includes('napközi') || sLower.includes('tanulószoba') || sLower.includes('szabadidő');
         const isHabilitáció = sLower.includes('habilitáció') || sLower.includes('rehabilitáció');
 
-        // Rendes tanóra cannot be in period >= 7 (8. óra and above)
         if (!isNapközi && !isHabilitáció && l.period >= 7) {
           score -= 200000;
         }
@@ -237,27 +240,22 @@ export const useAutoScheduler = () => {
       if (peLessons.length > 0) {
         const peDays = new Set(peLessons.map(l => l.day));
 
-        // Exception: 3. osztály swimming on Wednesday (day 2, period 0 and 1)
         if (className.includes('3.')) {
           const wedPePeriods = peLessons.filter(l => l.day === 2).map(l => l.period);
           const hasWedSwimming = wedPePeriods.includes(0) && wedPePeriods.includes(1);
           if (!hasWedSwimming) {
             score -= 200000;
           }
-        }
-        // Exception: 5. osztály swimming on Friday (day 4, period 0 and 1)
-        else if (className.includes('5.')) {
+        } else if (className.includes('5.')) {
           const friPePeriods = peLessons.filter(l => l.day === 4).map(l => l.period);
           const hasFriSwimming = friPePeriods.includes(0) && friPePeriods.includes(1);
           if (!hasFriSwimming) {
             score -= 200000;
           }
-        } 
-        // Standard classes: PE should be present on all days where class has lessons
-        else {
+        } else {
           for (let d = 0; d < 5; d++) {
             if (days[d] && days[d].length > 0 && !peDays.has(d)) {
-              score -= 30000; // Soft penalty if PE is missing on a school day
+              score -= 30000;
             }
           }
         }
@@ -272,10 +270,9 @@ export const useAutoScheduler = () => {
 
         if (practiceLessons.length > 0) {
           const practiceDays = Array.from(new Set(practiceLessons.map(l => l.day))).sort((a, b) => a - b);
-          // Check if practice days are 2 consecutive days (e.g. [0,1] or [1,2] or [2,3] or [3,4])
           const isConsecutive = practiceDays.length === 2 && (practiceDays[1] - practiceDays[0] === 1);
           if (!isConsecutive) {
-            score -= 100000; // Penalty if practice is not 2 consecutive days
+            score -= 100000;
           }
         }
       }
@@ -284,7 +281,6 @@ export const useAutoScheduler = () => {
     return score;
   }, [findSubject, findClass]);
 
-  // Ultra-fast, conflict-targeted local search (Hill Climbing)
   const runLocalSearch = useCallback((
     genes: Chromosome['genes'],
     teachers: Teacher[],
@@ -293,7 +289,7 @@ export const useAutoScheduler = () => {
     let currentGenes = genes.map(g => ({ ...g }));
     let currentFitness = calculateFitness(currentGenes, teachers);
 
-    if (currentFitness >= 0) return currentGenes; // Already perfect!
+    if (currentFitness >= 0) return currentGenes;
 
     const indices = Array.from({ length: currentGenes.length }, (_, i) => i);
     for (let i = indices.length - 1; i > 0; i--) {
@@ -340,16 +336,71 @@ export const useAutoScheduler = () => {
     setBestFitness(-999999);
     abortRef.current = false;
 
-    // Yield to React state update so UI modal renders immediately
+    const { allocations, placedLessons, teachers, classes, subjects } = currentState;
+
+    const activeAllocations = allocations.filter(a => {
+      const teacher = teachers.find(t => t.id === a.teacherId);
+      return !teacher?.isTraveling;
+    });
+
+    const preservedLessons = options.resetAll 
+      ? placedLessons.filter(l => {
+          const teacher = teachers.find(t => t.id === l.allocation.teacherId);
+          return teacher?.isTraveling;
+        })
+      : [...placedLessons];
+
+    // Try Google OR-Tools CP-SAT Solver via /api/solve-timetable first
+    try {
+      setProgress(20);
+      const res = await fetch('/api/solve-timetable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          allocations: activeAllocations,
+          teachers,
+          classes,
+          subjects,
+          preservedLessons: preservedLessons.map(l => ({
+            allocationId: l.allocation.id,
+            day: l.day,
+            period: l.period
+          }))
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === 'OPTIMAL' || data.status === 'FEASIBLE') {
+          console.log('[auto-scheduler] Google OR-Tools CP-SAT solved successfully:', data.status);
+          const newPlacedLessons: PlacedLesson[] = [];
+          
+          data.placedLessons.forEach((item: any) => {
+            const alloc = allocations.find(a => a.id === item.allocationId);
+            if (alloc) {
+              newPlacedLessons.push({
+                id: `${alloc.id}-${crypto.randomUUID()}`,
+                allocation: alloc,
+                day: item.day,
+                period: item.period
+              });
+            }
+          });
+
+          setPlacedLessons(newPlacedLessons);
+          setBestFitness(0);
+          setProgress(100);
+          setIsGenerating(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('[auto-scheduler] OR-Tools API endpoint unavailable, using client-side CSP solver fallback');
+    }
+
+    // Client-side CSP Solver Fallback
     setTimeout(() => {
       if (!currentState || abortRef.current) return;
-
-      const { allocations, placedLessons, teachers } = currentState;
-
-      const activeAllocations = allocations.filter(a => {
-        const teacher = teachers.find(t => t.id === a.teacherId);
-        return !teacher?.isTraveling;
-      });
 
       const lessonsToPlace: Allocation[] = [];
       activeAllocations.forEach(alloc => {
@@ -364,13 +415,6 @@ export const useAutoScheduler = () => {
         return;
       }
 
-      const preservedLessons = options.resetAll 
-        ? placedLessons.filter(l => {
-            const teacher = teachers.find(t => t.id === l.allocation.teacherId);
-            return teacher?.isTraveling;
-          })
-        : [...placedLessons];
-
       let finalLessonsToPlace = [...lessonsToPlace];
       if (!options.resetAll) {
         const placedNonTraveling = placedLessons.filter(l => {
@@ -384,12 +428,6 @@ export const useAutoScheduler = () => {
             finalLessonsToPlace.splice(idx, 1);
           }
         });
-      }
-
-      if (finalLessonsToPlace.length === 0) {
-        alert("Minden óra be van már osztva!");
-        setIsGenerating(false);
-        return;
       }
 
       const allocationAvailableSlots = new Map<string, { day: number; period: number }[]>();
