@@ -206,23 +206,39 @@ def solve_cp_sat(data):
                             # Academic lesson cannot be at or after Napközi on same day
                             model.AddBoolOr([X[idx_nap, d, p_nap].Not(), X[idx_acad, d, p_acad].Not()])
 
-    # Constraint 7: Swimming exceptions (3. osztály Wed 1-2, 5. osztály Fri 1-2)
+    # Constraint 7: Mindennapos Testnevelés + Úszás kivétel
     for c_id, indices in class_to_lessons.items():
         c_name = class_dict.get(c_id, {}).get("name", "").lower()
         pe_indices = [idx for idx in indices if "testnevelés" in lesson_units[idx]["subject_name"].lower() or "tesi" in lesson_units[idx]["subject_name"].lower()]
 
+        if len(pe_indices) == 0:
+            continue
+
         is_grade_3 = "3." in c_name or "3/a" in c_name or "3/b" in c_name or c_name.startswith("3 ") or c_name == "3"
         is_grade_5 = "5." in c_name or "5/a" in c_name or "5/b" in c_name or c_name.startswith("5 ") or c_name == "5"
 
-        if is_grade_3 and len(pe_indices) >= 2:
-            # Wednesday (d=2): period 0 (1. óra) MUST be PE, AND period 1 (2. óra) MUST be PE
-            model.Add(sum(X[idx, 2, 0] for idx in pe_indices) == 1)
-            model.Add(sum(X[idx, 2, 1] for idx in pe_indices) == 1)
+        # How many PE hours do we have vs how many days
+        num_pe = len(pe_indices)
 
-        if is_grade_5 and len(pe_indices) >= 2:
-            # Friday (d=4): period 0 (1. óra) MUST be PE, AND period 1 (2. óra) MUST be PE
-            model.Add(sum(X[idx, 4, 0] for idx in pe_indices) == 1)
-            model.Add(sum(X[idx, 4, 1] for idx in pe_indices) == 1)
+        for d in range(DAYS):
+            # Determine how many PE lessons are required on this day
+            if is_grade_3 and d == 2:  # Wednesday
+                required_pe = 2  # Swimming: 1. and 2. óra
+                model.Add(sum(X[idx, d, 0] for idx in pe_indices) == 1)
+                model.Add(sum(X[idx, d, 1] for idx in pe_indices) == 1)
+            elif is_grade_5 and d == 4:  # Friday
+                required_pe = 2  # Swimming: 1. and 2. óra
+                model.Add(sum(X[idx, d, 0] for idx in pe_indices) == 1)
+                model.Add(sum(X[idx, d, 1] for idx in pe_indices) == 1)
+            else:
+                required_pe = 1
+
+            # Enforce the required PE count per day
+            if num_pe >= required_pe:
+                model.Add(sum(X[idx, d, p] for idx in pe_indices for p in range(PERIODS)) == required_pe)
+            else:
+                # Not enough PE lessons — enforce at most 1
+                model.Add(sum(X[idx, d, p] for idx in pe_indices for p in range(PERIODS)) <= 1)
 
     # Constraint 8: Painter practice blocks (9. festő & 10. festő)
     for c_id, indices in class_to_lessons.items():

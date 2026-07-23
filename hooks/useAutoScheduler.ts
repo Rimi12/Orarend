@@ -272,31 +272,38 @@ export const useAutoScheduler = () => {
         }
       });
 
-      // 6. Testnevelés (PE) & Úszás (Swimming) rules
+      // 6. Testnevelés (PE) Mindennapos kötelező elosztás + Úszás kivétel
       const peLessons = lessons.filter(l => {
         const sLower = l.subjectName.toLowerCase();
         return sLower.includes('testnevelés') || sLower.includes('tesi');
       });
 
       if (peLessons.length > 0) {
-        const peDays = new Set(peLessons.map(l => l.day));
+        const is3Grade = className.includes('3.');
+        const is5Grade = className.includes('5.');
 
-        if (className.includes('3.')) {
-          const wedPePeriods = peLessons.filter(l => l.day === 2).map(l => l.period);
-          const hasWedSwimming = wedPePeriods.includes(0) && wedPePeriods.includes(1);
-          if (!hasWedSwimming) {
-            score -= 200000;
+        // Group PE lessons by day
+        const peByDay: Record<number, number[]> = {};
+        peLessons.forEach(l => {
+          if (!peByDay[l.day]) peByDay[l.day] = [];
+          peByDay[l.day].push(l.period);
+        });
+
+        // Check each day
+        for (let d = 0; d < 5; d++) {
+          const pePeriods = peByDay[d] || [];
+          const isSwimmingDay = (is3Grade && d === 2) || (is5Grade && d === 4);
+          const requiredCount = isSwimmingDay ? 2 : 1;
+
+          if (pePeriods.length !== requiredCount) {
+            score -= 200000; // Hard penalty: wrong number of PE on this day
           }
-        } else if (className.includes('5.')) {
-          const friPePeriods = peLessons.filter(l => l.day === 4).map(l => l.period);
-          const hasFriSwimming = friPePeriods.includes(0) && friPePeriods.includes(1);
-          if (!hasFriSwimming) {
-            score -= 200000;
-          }
-        } else {
-          for (let d = 0; d < 5; d++) {
-            if (days[d] && days[d].length > 0 && !peDays.has(d)) {
-              score -= 30000;
+
+          // Swimming day: must be in 1. and 2. óra (period 0 and 1)
+          if (isSwimmingDay) {
+            const hasSwimming = pePeriods.includes(0) && pePeriods.includes(1);
+            if (!hasSwimming) {
+              score -= 200000;
             }
           }
         }
