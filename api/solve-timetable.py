@@ -91,8 +91,11 @@ def solve_cp_sat(data):
     class_day_napkozi_periods = {}     # (class_id, d) -> list of periods
     class_day_pe_counts = {}           # (class_id, d) -> count
 
+    new_alloc_ids = {a["id"] for a in active_allocations}
     for p_les in preserved_lessons:
         alloc_id = p_les.get("allocationId")
+        if alloc_id in new_alloc_ids:
+            continue  # Do not block slots for allocations being scheduled in this phase!
         d = p_les.get("day")
         p = p_les.get("period")
         if alloc_id in all_alloc_dict and d is not None and p is not None:
