@@ -338,9 +338,12 @@ const Main: React.FC = () => {
         onClose={() => setIsAutoSchedulerOpen(false)}
         isGenerating={autoScheduler.isGenerating}
         progress={autoScheduler.progress}
-        generationCount={autoScheduler.generationCount}
-        bestFitness={autoScheduler.bestFitness}
+        currentPhase={autoScheduler.currentPhase}
+        waitingForNextPhase={autoScheduler.waitingForNextPhase}
+        hasRun={autoScheduler.hasRun}
+        phaseStats={autoScheduler.phaseStats}
         onGenerate={autoScheduler.generateTimetable}
+        onProceed={autoScheduler.proceedToNextPhase}
         onCancel={autoScheduler.cancelGeneration}
       />
 

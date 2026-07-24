@@ -12,400 +12,96 @@ interface Chromosome {
 }
 
 export const useAutoScheduler = () => {
-  const { currentState, setPlacedLessons, findSubject, findClass } = useTimetable();
+  const { currentState, setPlacedLessons } = useTimetable();
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [generationCount, setGenerationCount] = useState(0);
-  const [bestFitness, setBestFitness] = useState(0);
+  const [currentPhase, setCurrentPhase] = useState<number>(0); // 0, 1, 2, 3
+  const [waitingForNextPhase, setWaitingForNextPhase] = useState<boolean>(false);
+  const [hasRun, setHasRun] = useState<boolean>(false);
+  const [phaseStats, setPhaseStats] = useState<{ g1Count: number; g2Count: number; g3Count: number }>({
+    g1Count: 0,
+    g2Count: 0,
+    g3Count: 0
+  });
 
-  const abortRef = useRef<boolean>(false);
+  // Stored state between phases
+  const phaseGroupsRef = useRef<{
+    g1: Allocation[];
+    g2: Allocation[];
+    g3: Allocation[];
+    initialPreserved: PlacedLesson[];
+    resetAll: boolean;
+  }>({ g1: [], g2: [], g3: [], initialPreserved: [], resetAll: true });
 
-  // Precalculate available slots for a teacher
-  const getTeacherAvailableSlots = useCallback((teacher: Teacher) => {
-    const slots: { day: number; period: number }[] = [];
-    for (let day = 0; day < 5; day++) {
-      for (let period = 0; period < 8; period++) {
-        if (teacher?.availability[day]?.[period] !== false) {
-          slots.push({ day, period });
-        }
+  const currentAccumulatedPlacedRef = useRef<PlacedLesson[]>([]);
+
+  // Partition allocations into 3 groups
+  const partitionAllocations = useCallback((activeAllocations: Allocation[]) => {
+    const teacherClassCounts = new Map<string, Set<string>>();
+    activeAllocations.forEach(a => {
+      if (!teacherClassCounts.has(a.teacherId)) {
+        teacherClassCounts.set(a.teacherId, new Set());
       }
-    }
-    return slots.length > 0 ? slots : [{ day: 0, period: 0 }];
+      teacherClassCounts.get(a.teacherId)!.add(a.classId);
+    });
+
+    const singleClassTeacherIds = new Set<string>();
+    const multiClassTeachers: { teacherId: string; classCount: number; hours: number }[] = [];
+
+    teacherClassCounts.forEach((classesSet, teacherId) => {
+      if (classesSet.size === 1) {
+        singleClassTeacherIds.add(teacherId);
+      } else {
+        const totalHours = activeAllocations
+          .filter(a => a.teacherId === teacherId)
+          .reduce((sum, a) => sum + (a.weeklyHours || 1), 0);
+        multiClassTeachers.push({
+          teacherId,
+          classCount: classesSet.size,
+          hours: totalHours
+        });
+      }
+    });
+
+    multiClassTeachers.sort((a, b) => b.classCount - a.classCount || b.hours - a.hours);
+
+    const halfCount = Math.max(1, Math.ceil(multiClassTeachers.length / 2));
+    const group2TeacherIds = new Set(
+      multiClassTeachers.slice(0, halfCount).map(t => t.teacherId)
+    );
+
+    const g1: Allocation[] = [];
+    const g2: Allocation[] = [];
+    const g3: Allocation[] = [];
+
+    activeAllocations.forEach(a => {
+      if (singleClassTeacherIds.has(a.teacherId)) {
+        g1.push(a);
+      } else if (group2TeacherIds.has(a.teacherId)) {
+        g2.push(a);
+      } else {
+        g3.push(a);
+      }
+    });
+
+    return { g1, g2, g3 };
   }, []);
 
-  const calculateFitness = useCallback((genes: Chromosome['genes'], allTeachers: Teacher[]): number => {
-    let score = 0;
+  // Run CP-SAT for a specific phase
+  const runPhaseSolve = async (
+    phaseNum: number,
+    phaseAllocations: Allocation[],
+    preservedLessons: PlacedLesson[]
+  ): Promise<PlacedLesson[] | null> => {
+    if (!currentState) return null;
+    const { allocations, teachers, classes, subjects } = currentState;
 
-    const teacherLessons: Record<string, { day: number; period: number; classId: string; groupName: string }[]> = {};
-    const classLessons: Record<string, { day: number; period: number; groupName: string; subjectName: string; allocationId: string }[]> = {};
-
-    genes.forEach(gene => {
-      const { allocation, day, period } = gene;
-      const teacher = allTeachers.find(t => t.id === allocation.teacherId);
-      const subject = findSubject(allocation.subjectId);
-
-      const groupName = allocation.originalGroup || '';
-      const subjectName = subject?.name || '';
-      const teacherId = allocation.teacherId;
-      const classId = allocation.classId;
-
-      // 1. Teacher availability (Hard Constraint)
-      const isTeacherAvailable = teacher?.availability[day]?.[period] ?? true;
-      if (!isTeacherAvailable) {
-        score -= 200000;
-      }
-
-      if (!teacherLessons[teacherId]) teacherLessons[teacherId] = [];
-      teacherLessons[teacherId].push({ day, period, classId, groupName });
-
-      if (!classLessons[classId]) classLessons[classId] = [];
-      classLessons[classId].push({ day, period, groupName, subjectName, allocationId: allocation.id });
-    });
-
-    // 2. Teacher collisions (Hard Constraint)
-    Object.keys(teacherLessons).forEach(teacherId => {
-      const lessons = teacherLessons[teacherId];
-      const slots: Record<string, typeof lessons> = {};
-      lessons.forEach(l => {
-        const slotKey = `${l.day}-${l.period}`;
-        if (!slots[slotKey]) slots[slotKey] = [];
-        slots[slotKey].push(l);
-      });
-
-      Object.keys(slots).forEach(slotKey => {
-        const count = slots[slotKey].length;
-        if (count > 1) {
-          // Teacher cannot teach 2 lessons at the same time!
-          score -= 200000 * (count - 1);
-        }
-      });
-
-      // Teacher Lyukasóra & Daily Minimum (Hard & Soft Constraints)
-      const days: Record<number, number[]> = {};
-      lessons.forEach(l => {
-        if (!days[l.day]) days[l.day] = [];
-        days[l.day].push(l.period);
-      });
-
-      let teacherGapsThisWeek = 0;
-      Object.keys(days).forEach(dStr => {
-        const pList = days[Number(dStr)].sort((a, b) => a - b);
-        
-        // Minimum 2 hours per day if working
-        if (pList.length === 1) {
-          score -= 100000; // Hard penalty for 1 hour working day
-        }
-
-        if (pList.length > 1) {
-          const minP = pList[0];
-          const maxP = pList[pList.length - 1];
-          let dailyGaps = 0;
-          for (let p = minP + 1; p < maxP; p++) {
-            if (!pList.includes(p)) {
-              dailyGaps++;
-            }
-          }
-
-          if (dailyGaps > 1) {
-            score -= 100000; // Max 1 gap per day
-          }
-          teacherGapsThisWeek += dailyGaps;
-        }
-      });
-
-      if (teacherGapsThisWeek > 3) {
-        score -= 100000; // Max 3 gaps per week
-      }
-    });
-
-    // 3. Class constraints & EGYMI rules
-    Object.keys(classLessons).forEach(classId => {
-      const lessons = classLessons[classId];
-      const cls = findClass(classId);
-      const className = cls?.name || '';
-
-      const slots: Record<string, typeof lessons> = {};
-      lessons.forEach(l => {
-        const slotKey = `${l.day}-${l.period}`;
-        if (!slots[slotKey]) slots[slotKey] = [];
-        slots[slotKey].push(l);
-      });
-
-      Object.keys(slots).forEach(slotKey => {
-        const lessonsInSlot = slots[slotKey];
-        if (lessonsInSlot.length > 1) {
-          const hasHab = lessonsInSlot.some(l => {
-            const sLower = l.subjectName.toLowerCase();
-            return sLower.includes('habilitáció') || sLower.includes('rehabilitáció') || sLower.includes('logopédia');
-          });
-
-          const hasNapközi = lessonsInSlot.some(l => {
-            const sLower = l.subjectName.toLowerCase();
-            return sLower.includes('napközi') || sLower.includes('szabadidő') || sLower.includes('tanulószoba');
-          });
-
-          const hasTesi = lessonsInSlot.some(l => {
-            const sLower = l.subjectName.toLowerCase();
-            return sLower.includes('testnevelés') || sLower.includes('tesi');
-          });
-
-          const is9or10Grade = className.includes('9.') || className.includes('10.');
-
-          // Rule: Next to Napközi, ONLY Habilitáció is allowed (by a different teacher)
-          if (hasNapközi) {
-            const invalidParallelLessons = lessonsInSlot.filter(l => {
-              const sLower = l.subjectName.toLowerCase();
-              const isNap = sLower.includes('napközi') || sLower.includes('szabadidő') || sLower.includes('tanulószoba');
-              const isHab = sLower.includes('habilitáció') || sLower.includes('rehabilitáció') || sLower.includes('logopédia');
-              return !isNap && !isHab;
-            });
-            if (invalidParallelLessons.length > 0) {
-              score -= 200000 * invalidParallelLessons.length;
-            }
-          }
-
-          const isAllowedException = (hasHab && hasNapközi) || (is9or10Grade && hasHab && hasTesi);
-
-          if (!isAllowedException) {
-            const groups = lessonsInSlot.map(l => l.groupName);
-            const hasWholeClass = groups.some(g => g === '');
-            if (hasWholeClass) {
-              score -= 200000 * (lessonsInSlot.length - 1);
-            } else {
-              const uniqueGroups = new Set(groups);
-              if (uniqueGroups.size < groups.length) {
-                score -= 200000 * (groups.length - uniqueGroups.size);
-              }
-            }
-          }
-        }
-      });
-
-      // 4. Class Gaps / Lyukasóra-mentesség & Continuity
-      const days: Record<number, typeof lessons> = {};
-      lessons.forEach(l => {
-        if (!days[l.day]) days[l.day] = [];
-        days[l.day].push(l);
-      });
-
-      Object.keys(days).forEach(dStr => {
-        const dayLessons = days[Number(dStr)];
-        const pList = dayLessons.map(l => l.period).sort((a, b) => a - b);
-
-        if (pList.length > 0) {
-          const minP = pList[0];
-          const maxP = pList[pList.length - 1];
-
-          for (let p = minP + 1; p < maxP; p++) {
-            if (!pList.includes(p)) {
-              score -= 200000;
-            }
-          }
-
-          if (minP > 0) {
-            score -= 50000 * minP;
-          }
-
-          const maxAcademicPeriod = Math.max(
-            -1,
-            ...dayLessons
-              .filter(l => {
-                const sLower = l.subjectName.toLowerCase();
-                return !sLower.includes('napközi') && !sLower.includes('tanulószoba') && !sLower.includes('szabadidő');
-              })
-              .map(l => l.period)
-          );
-
-          const minNapköziPeriod = Math.min(
-            99,
-            ...dayLessons
-              .filter(l => {
-                const sLower = l.subjectName.toLowerCase();
-                return sLower.includes('napközi') || sLower.includes('tanulószoba') || sLower.includes('szabadidő');
-              })
-              .map(l => l.period)
-          );
-
-          if (minNapköziPeriod !== 99 && maxAcademicPeriod > minNapköziPeriod) {
-            score -= 200000;
-          }
-        }
-      });
-
-      // 5. Subject-specific time windows based on Grade Level
-      lessons.forEach(l => {
-        const sLower = l.subjectName.toLowerCase();
-        const isNapközi = sLower.includes('napközi') || sLower.includes('tanulószoba') || sLower.includes('szabadidő');
-        const isHabilitáció = sLower.includes('habilitáció') || sLower.includes('rehabilitáció');
-
-        const is7or8Grade = className.includes('7.') || className.includes('8.');
-        const is4Grade = className.includes('4.');
-
-        if (is7or8Grade) {
-          if (isNapközi || isHabilitáció) {
-            if (l.period < 6) { // Forbidden in 1-6. óra for 7-8. grade
-              score -= 200000;
-            }
-          } else {
-            if (l.period >= 6) { // Forbidden in 7-8. óra for academic in 7-8. grade
-              score -= 200000;
-            }
-          }
-        } else if (is4Grade) {
-          if (isNapközi || isHabilitáció) {
-            if (l.period < 5) { // Forbidden in 1-5. óra for 4. grade
-              score -= 200000;
-            }
-          } else {
-            if (l.period >= 5) { // Forbidden in 6-8. óra for academic in 4. grade
-              score -= 200000;
-            }
-          }
-        } else {
-          if (isNapközi || isHabilitáció) {
-            if (l.period < 4) { // Forbidden in 1-4. óra
-              score -= 200000;
-            }
-          } else if (l.period >= 7) { // Forbidden in 8. óra for academic
-            score -= 200000;
-          }
-        }
-      });
-
-      // 6. Testnevelés (PE) Mindennapos kötelező elosztás + Úszás kivétel
-      const peLessons = lessons.filter(l => {
-        const sLower = l.subjectName.toLowerCase();
-        return sLower.includes('testnevelés') || sLower.includes('tesi');
-      });
-
-      if (peLessons.length > 0) {
-        const is3Grade = className.includes('3.');
-        const is5Grade = className.includes('5.');
-
-        // Group PE lessons by day
-        const peByDay: Record<number, number[]> = {};
-        peLessons.forEach(l => {
-          if (!peByDay[l.day]) peByDay[l.day] = [];
-          peByDay[l.day].push(l.period);
-        });
-
-        // Check each day
-        for (let d = 0; d < 5; d++) {
-          const pePeriods = peByDay[d] || [];
-          const isSwimmingDay = (is3Grade && d === 2) || (is5Grade && d === 4);
-          const requiredCount = isSwimmingDay ? 2 : 1;
-
-          if (pePeriods.length !== requiredCount) {
-            score -= 200000; // Hard penalty: wrong number of PE on this day
-          }
-
-          // Swimming day: must be in 1. and 2. óra (period 0 and 1)
-          if (isSwimmingDay) {
-            const hasSwimming = pePeriods.includes(0) && pePeriods.includes(1);
-            if (!hasSwimming) {
-              score -= 200000;
-            }
-          }
-        }
-      }
-
-      // 7. Festő osztályok (9. festő és 10. festő) Gyakorlati Tömbösítés
-      if (className.includes('festő') || className.includes('festo')) {
-        const practiceLessons = lessons.filter(l => {
-          const sLower = l.subjectName.toLowerCase();
-          return sLower.includes('gyakorlat') || sLower.includes('szakmai');
-        });
-
-        if (practiceLessons.length > 0) {
-          const practiceDays = Array.from(new Set(practiceLessons.map(l => l.day))).sort((a, b) => a - b);
-          const isConsecutive = practiceDays.length === 2 && (practiceDays[1] - practiceDays[0] === 1);
-          if (!isConsecutive) {
-            score -= 100000;
-          }
-        }
-      }
-    });
-
-    return score;
-  }, [findSubject, findClass]);
-
-  const runLocalSearch = useCallback((
-    genes: Chromosome['genes'],
-    teachers: Teacher[],
-    allocationAvailableSlots: Map<string, { day: number; period: number }[]>
-  ): Chromosome['genes'] => {
-    let currentGenes = genes.map(g => ({ ...g }));
-    let currentFitness = calculateFitness(currentGenes, teachers);
-
-    if (currentFitness >= 0) return currentGenes;
-
-    const indices = Array.from({ length: currentGenes.length }, (_, i) => i);
-    for (let i = indices.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [indices[i], indices[j]] = [indices[j], indices[i]];
-    }
-
-    let tries = 0;
-    for (const i of indices) {
-      if (tries > 30) break;
-      tries++;
-
-      const gene = currentGenes[i];
-      const slots = allocationAvailableSlots.get(gene.allocation.id)!;
-      let bestSlot = { day: gene.day, period: gene.period };
-      let bestSlotFitness = currentFitness;
-
-      for (const slot of slots) {
-        if (slot.day === gene.day && slot.period === gene.period) continue;
-        
-        currentGenes[i].day = slot.day;
-        currentGenes[i].period = slot.period;
-        
-        const f = calculateFitness(currentGenes, teachers);
-        if (f > bestSlotFitness) {
-          bestSlotFitness = f;
-          bestSlot = { day: slot.day, period: slot.period };
-        }
-      }
-
-      currentGenes[i].day = bestSlot.day;
-      currentGenes[i].period = bestSlot.period;
-      currentFitness = bestSlotFitness;
-    }
-
-    return currentGenes;
-  }, [calculateFitness]);
-
-  const generateTimetable = useCallback(async (options: { resetAll: boolean }) => {
-    if (!currentState) return;
-    setIsGenerating(true);
-    setProgress(0);
-    setGenerationCount(0);
-    setBestFitness(-999999);
-    abortRef.current = false;
-
-    const { allocations, placedLessons, teachers, classes, subjects } = currentState;
-
-    const activeAllocations = allocations.filter(a => {
-      const teacher = teachers.find(t => t.id === a.teacherId);
-      return !teacher?.isTraveling;
-    });
-
-    const preservedLessons = options.resetAll 
-      ? placedLessons.filter(l => {
-          const teacher = teachers.find(t => t.id === l.allocation.teacherId);
-          return teacher?.isTraveling;
-        })
-      : [...placedLessons];
-
-    // Google OR-Tools CP-SAT Solver (single solver – no fallback)
     try {
-      setProgress(20);
       const res = await fetch('/api/solve-timetable', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          allocations: activeAllocations,
+          allocations: phaseAllocations,
           teachers,
           classes,
           subjects,
@@ -420,7 +116,7 @@ export const useAutoScheduler = () => {
       if (res.ok) {
         const data = await res.json();
         if (data.status === 'OPTIMAL' || data.status === 'FEASIBLE') {
-          console.log('[auto-scheduler] Google OR-Tools CP-SAT solved successfully:', data.status);
+          console.log(`[auto-scheduler] Phase ${phaseNum} solved successfully:`, data.status);
           const newPlacedLessons: PlacedLesson[] = [];
 
           data.placedLessons.forEach((item: any) => {
@@ -435,40 +131,137 @@ export const useAutoScheduler = () => {
             }
           });
 
-          setPlacedLessons(newPlacedLessons);
-          setBestFitness(0);
-          setProgress(100);
-          setIsGenerating(false);
-          return;
+          return newPlacedLessons;
         } else {
           const msg = data.message || 'Ismeretlen hiba';
-          console.error('[auto-scheduler] CP-SAT INFEASIBLE:', msg);
-          alert(`❌ Az AI nem tudott érvényes órarendet generálni.\n\nOk: ${msg}\n\nEllenőrizd az allokációkat és a szabályokat!`);
+          console.error(`[auto-scheduler] Phase ${phaseNum} CP-SAT INFEASIBLE:`, msg);
+          alert(`❌ Hiba a(z) ${phaseNum}. csoport generálásakor.\n\nOk: ${msg}\n\nEllenőrizd az allokációkat és a szabályokat!`);
+          return null;
         }
       } else {
-        alert(`❌ Az órarend-generáló szerver hibát adott vissza (HTTP ${res.status}). Kérlek próbáld újra!`);
+        alert(`❌ Az órarend-generáló szerver hibát adott vissza a(z) ${phaseNum}. csoportnál (HTTP ${res.status}).`);
+        return null;
       }
     } catch (err) {
-      console.error('[auto-scheduler] CP-SAT API hiba:', err);
-      alert('❌ Nem sikerült elérni az órarend-generáló szervert.\n\nEllenőrizd az internetkapcsolatot, és próbáld újra!');
+      console.error(`[auto-scheduler] Phase ${phaseNum} API error:`, err);
+      alert('❌ Nem sikerült elérni az órarend-generáló szervert. Ellenőrizd a kapcsolatot!');
+      return null;
     }
+  };
 
-    setIsGenerating(false);
-    setProgress(0);
+  // Start 3-Phase Generation (Phase 1)
+  const generateTimetable = useCallback(async (options: { resetAll: boolean }) => {
+    if (!currentState) return;
+    setIsGenerating(true);
+    setProgress(10);
+    setCurrentPhase(1);
+    setWaitingForNextPhase(false);
+    setHasRun(false);
 
-  }, [currentState, getTeacherAvailableSlots, setPlacedLessons]);
+    const { allocations, placedLessons, teachers } = currentState;
+
+    const activeAllocations = allocations.filter(a => {
+      const teacher = teachers.find(t => t.id === a.teacherId);
+      return !teacher?.isTraveling;
+    });
+
+    const initialPreserved = options.resetAll
+      ? placedLessons.filter(l => {
+          const teacher = teachers.find(t => t.id === l.allocation.teacherId);
+          return teacher?.isTraveling;
+        })
+      : [...placedLessons];
+
+    const { g1, g2, g3 } = partitionAllocations(activeAllocations);
+    phaseGroupsRef.current = { g1, g2, g3, initialPreserved, resetAll: options.resetAll };
+
+    setPhaseStats({
+      g1Count: g1.reduce((s, a) => s + (a.weeklyHours || 1), 0),
+      g2Count: g2.reduce((s, a) => s + (a.weeklyHours || 1), 0),
+      g3Count: g3.reduce((s, a) => s + (a.weeklyHours || 1), 0)
+    });
+
+    setProgress(25);
+
+    // Run Phase 1
+    const result1 = await runPhaseSolve(1, g1, initialPreserved);
+    if (result1) {
+      currentAccumulatedPlacedRef.current = result1;
+      setPlacedLessons(result1);
+      setProgress(33);
+      setIsGenerating(false);
+      setWaitingForNextPhase(true);
+    } else {
+      setIsGenerating(false);
+      setProgress(0);
+      setCurrentPhase(0);
+    }
+  }, [currentState, partitionAllocations, setPlacedLessons]);
+
+  // Proceed to next phase (Phase 2 or Phase 3)
+  const proceedToNextPhase = useCallback(async () => {
+    if (currentPhase === 1) {
+      // Start Phase 2
+      setIsGenerating(true);
+      setWaitingForNextPhase(false);
+      setCurrentPhase(2);
+      setProgress(45);
+
+      const { g2 } = phaseGroupsRef.current;
+      const currentPreserved = currentAccumulatedPlacedRef.current;
+
+      const result2 = await runPhaseSolve(2, g2, currentPreserved);
+      if (result2) {
+        currentAccumulatedPlacedRef.current = result2;
+        setPlacedLessons(result2);
+        setProgress(66);
+        setIsGenerating(false);
+        setWaitingForNextPhase(true);
+      } else {
+        setIsGenerating(false);
+      }
+    } else if (currentPhase === 2) {
+      // Start Phase 3
+      setIsGenerating(true);
+      setWaitingForNextPhase(false);
+      setCurrentPhase(3);
+      setProgress(80);
+
+      const { g3 } = phaseGroupsRef.current;
+      const currentPreserved = currentAccumulatedPlacedRef.current;
+
+      const result3 = await runPhaseSolve(3, g3, currentPreserved);
+      if (result3) {
+        currentAccumulatedPlacedRef.current = result3;
+        setPlacedLessons(result3);
+        setProgress(100);
+        setIsGenerating(false);
+        setWaitingForNextPhase(false);
+        setHasRun(true);
+      } else {
+        setIsGenerating(false);
+      }
+    }
+  }, [currentPhase, setPlacedLessons]);
 
   const cancelGeneration = useCallback(() => {
-    abortRef.current = true;
     setIsGenerating(false);
+    setWaitingForNextPhase(false);
+    setCurrentPhase(0);
+    setProgress(0);
+    setHasRun(false);
   }, []);
 
   return {
     isGenerating,
     progress,
-    generationCount,
-    bestFitness,
+    currentPhase,
+    waitingForNextPhase,
+    hasRun,
+    phaseStats,
     generateTimetable,
+    proceedToNextPhase,
     cancelGeneration
   };
 };
+
