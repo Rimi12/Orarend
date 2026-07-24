@@ -10,30 +10,6 @@ except ImportError:
     HAS_OR_TOOLS = False
 
 
-class TimetableSolutionCallback(cp_model.CpSolverSolutionCallback):
-    def __init__(self, lesson_units, valid_slots, X, preserved_lessons):
-        cp_model.CpSolverSolutionCallback.__init__(self)
-        self.lesson_units = lesson_units
-        self.valid_slots = valid_slots
-        self.X = X
-        self.preserved_lessons = preserved_lessons
-        self.best_placed_lessons = None
-        self.solution_count = 0
-
-    def on_solution_callback(self):
-        self.solution_count += 1
-        placed = list(self.preserved_lessons)
-        for i, unit in enumerate(self.lesson_units):
-            for (d, p) in self.valid_slots[i]:
-                if self.Value(self.X[i, d, p]) == 1:
-                    placed.append({
-                        "allocationId": unit["alloc_id"],
-                        "day": d,
-                        "period": p,
-                    })
-                    break
-        self.best_placed_lessons = placed
-
 
 def solve_cp_sat(data):
     if not HAS_OR_TOOLS:
@@ -348,19 +324,38 @@ def solve_cp_sat(data):
     if penalties:
         model.Minimize(sum(penalties))
 
-    # Solve model with SolutionCallback to capture feasible solutions
-    cb = TimetableSolutionCallback(lesson_units, valid_slots, X, preserved_lessons)
+    # Solve model without Python GIL callbacks for max C++ speed
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = 2.0
-    solver.parameters.num_search_workers = 1
+    solver.parameters.num_search_workers = 2
     solver.parameters.log_search_progress = False
 
-    status = solver.Solve(model, cb)
+    status = solver.Solve(model)
 
-    placed_result = cb.best_placed_lessons
+    placed_result = None
+    if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        try:
+            temp_placed = list(preserved_lessons)
+            for i, unit in enumerate(lesson_units):
+                placed = False
+                for (d, p) in valid_slots[i]:
+                    if solver.Value(X[i, d, p]) == 1:
+                        temp_placed.append({
+                            "allocationId": unit["alloc_id"],
+                            "day": d,
+                            "period": p,
+                        })
+                        placed = True
+                        break
+                if not placed:
+                    break
+            if len(temp_placed) == len(preserved_lessons) + num_lessons:
+                placed_result = temp_placed
+        except Exception:
+            placed_result = None
 
-    # If CP-SAT callback did not return a complete placement (e.g. status UNKNOWN on Vercel timeout)
-    if placed_result is None or len(placed_result) < len(preserved_lessons) + num_lessons:
+    # Fallback placer if status is UNKNOWN / INFEASIBLE or incomplete
+    if placed_result is None:
         temp_placed = list(preserved_lessons)
         used_t_slots = set(teacher_busy_slots)
         used_c_slots = set(class_whole_busy_slots)
@@ -379,7 +374,7 @@ def solve_cp_sat(data):
             c_id = unit["class_id"]
             assigned_slot = None
 
-            # First check if CP-SAT assigned this variable before timeout
+            # Check if solver assigned variable
             try:
                 for (d, p) in valid_slots[i]:
                     if solver.Value(X[i, d, p]) == 1:
@@ -388,14 +383,12 @@ def solve_cp_sat(data):
             except Exception:
                 pass
 
-            # If not assigned by CP-SAT, pick first un-busy slot
             if assigned_slot is None:
                 for (d, p) in valid_slots[i]:
                     if (t_id, d, p) not in used_t_slots and (c_id, d, p) not in used_c_slots:
                         assigned_slot = (d, p)
                         break
 
-            # Fallback to any valid slot
             if assigned_slot is None and valid_slots[i]:
                 assigned_slot = valid_slots[i][i % len(valid_slots[i])]
 
