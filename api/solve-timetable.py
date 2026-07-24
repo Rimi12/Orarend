@@ -10,6 +10,31 @@ except ImportError:
     HAS_OR_TOOLS = False
 
 
+class TimetableSolutionCallback(cp_model.CpSolverSolutionCallback):
+    def __init__(self, lesson_units, valid_slots, X, preserved_lessons):
+        cp_model.CpSolverSolutionCallback.__init__(self)
+        self.lesson_units = lesson_units
+        self.valid_slots = valid_slots
+        self.X = X
+        self.preserved_lessons = preserved_lessons
+        self.best_placed_lessons = None
+        self.solution_count = 0
+
+    def on_solution_callback(self):
+        self.solution_count += 1
+        placed = list(self.preserved_lessons)
+        for i, unit in enumerate(self.lesson_units):
+            for (d, p) in self.valid_slots[i]:
+                if self.Value(self.X[i, d, p]) == 1:
+                    placed.append({
+                        "allocationId": unit["alloc_id"],
+                        "day": d,
+                        "period": p,
+                    })
+                    break
+        self.best_placed_lessons = placed
+
+
 def solve_cp_sat(data):
     if not HAS_OR_TOOLS:
         return {"status": "ERROR", "message": "ortools library is not installed"}
@@ -98,6 +123,24 @@ def solve_cp_sat(data):
     if num_lessons == 0:
         return {"status": "OPTIMAL", "placedLessons": preserved_lessons}
 
+    # Pre-compute teacher required hours vs available un-busy slots
+    teacher_hours_needed = {}
+    for unit in lesson_units:
+        t_id = unit["teacher_id"]
+        teacher_hours_needed[t_id] = teacher_hours_needed.get(t_id, 0) + 1
+
+    teachers_relax_avail = set()
+    for t_id, needed in teacher_hours_needed.items():
+        t = teacher_dict.get(t_id)
+        avail = t.get("availability", []) if t else []
+        avail_count = 0
+        for d in range(DAYS):
+            for p in range(PERIODS):
+                if not (d < len(avail) and p < len(avail[d]) and avail[d][p] is False) and (t_id, d, p) not in teacher_busy_slots:
+                    avail_count += 1
+        if avail_count < needed:
+            teachers_relax_avail.add(t_id)
+
     # Pre-compute valid (day, period) slots per new lesson unit
     valid_slots = {}  # lesson_idx -> list of (d, p)
     for i, unit in enumerate(lesson_units):
@@ -110,26 +153,25 @@ def solve_cp_sat(data):
 
         t = teacher_dict.get(t_id)
         avail = t.get("availability", []) if t else []
+        relax_avail = t_id in teachers_relax_avail
 
         slots = []
         for d in range(DAYS):
             for p in range(PERIODS):
-                # 1. Teacher availability check
-                if d < len(avail) and p < len(avail[d]) and avail[d][p] is False:
+                # 1. Teacher availability check (unless relaxed due to insufficient slots)
+                if not relax_avail and d < len(avail) and p < len(avail[d]) and avail[d][p] is False:
                     continue
                 # 2. Teacher busy from preserved lesson check
                 if (t_id, d, p) in teacher_busy_slots:
                     continue
                 # 3. Class busy from preserved whole-class lesson check
                 if (c_id, d, p) in class_whole_busy_slots:
-                    # Exception: Habilitacio + Napkozi by different teachers
                     if is_hab and p in class_day_napkozi_periods.get((c_id, d), []):
                         pass  # allowed
                     else:
                         continue
                 # 4. If whole class lesson, check if class has ANY preserved group lesson at (d,p)
                 if is_whole:
-                    # Check if class has whole-class or group preserved lesson
                     if (c_id, d, p) in class_whole_busy_slots or any((c_id, g, d, p) in class_group_busy_slots for g in ["group1", "group2", "fiú", "lány"]):
                         if is_hab and p in class_day_napkozi_periods.get((c_id, d), []):
                             pass
@@ -180,43 +222,39 @@ def solve_cp_sat(data):
         c_name = class_dict.get(c_id, {}).get("name", "").lower()
         is_9_10 = "9." in c_name or "10." in c_name
 
-        whole_class_indices = []
-        for idx in indices:
-            g_name = lesson_units[idx]["group_name"].strip().lower()
-            if not g_name or "közös" in g_name or "egész" in g_name or g_name == "0":
-                whole_class_indices.append(idx)
-
-        # Build conflict pairs for whole class vs others
+        # Build conflict pairs for all lessons belonging to class c_id
         conflict_pairs = []
-        for idx_w in whole_class_indices:
-            s_w = lesson_units[idx_w]["subject_name"].lower()
-            t_w = lesson_units[idx_w]["teacher_id"]
-            is_hab_w = "habilitáció" in s_w or "rehabilitáció" in s_w
-            is_nap_w = "napközi" in s_w or "tanulószoba" in s_w or "szabadidő" in s_w
-            is_tesi_w = "testnevelés" in s_w or "tesi" in s_w
+        for idx_a_pos, idx_a in enumerate(indices):
+            s_a = lesson_units[idx_a]["subject_name"].lower()
+            t_a = lesson_units[idx_a]["teacher_id"]
+            g_a = lesson_units[idx_a]["group_name"].strip().lower()
+            is_hab_a = "habilitáció" in s_a or "rehabilitáció" in s_a
+            is_nap_a = "napközi" in s_a or "tanulószoba" in s_a or "szabadidő" in s_a
+            is_tesi_a = "testnevelés" in s_a or "tesi" in s_a
+            is_whole_a = not g_a or "közös" in g_a or "egész" in g_a or g_a == "0"
 
-            for idx_other in indices:
-                if idx_w >= idx_other:
-                    continue
-                s_o = lesson_units[idx_other]["subject_name"].lower()
-                t_o = lesson_units[idx_other]["teacher_id"]
-                is_hab_o = "habilitáció" in s_o or "rehabilitáció" in s_o
-                is_nap_o = "napközi" in s_o or "tanulószoba" in s_o or "szabadidő" in s_o
-                is_tesi_o = "testnevelés" in s_o or "tesi" in s_o
+            for idx_b in indices[idx_a_pos + 1:]:
+                s_b = lesson_units[idx_b]["subject_name"].lower()
+                t_b = lesson_units[idx_b]["teacher_id"]
+                g_b = lesson_units[idx_b]["group_name"].strip().lower()
+                is_hab_b = "habilitáció" in s_b or "rehabilitáció" in s_b
+                is_nap_b = "napközi" in s_b or "tanulószoba" in s_b or "szabadidő" in s_b
+                is_tesi_b = "testnevelés" in s_b or "tesi" in s_b
+                is_whole_b = not g_b or "közös" in g_b or "egész" in g_b or g_b == "0"
 
-                allow_nap_hab = (is_hab_w and is_nap_o and t_w != t_o) or (is_hab_o and is_nap_w and t_w != t_o)
-                allow_tesi_hab = is_9_10 and ((is_hab_w and is_tesi_o and t_w != t_o) or (is_hab_o and is_tesi_w and t_w != t_o))
+                # Exception 1: Habilitacio + Napkozi by DIFFERENT teachers
+                allow_nap_hab = (is_hab_a and is_nap_b and t_a != t_b) or (is_hab_b and is_nap_a and t_a != t_b)
+                # Exception 2: Habilitacio + Tesi in 9-10. grade by DIFFERENT teachers
+                allow_tesi_hab = is_9_10 and ((is_hab_a and is_tesi_b and t_a != t_b) or (is_hab_b and is_tesi_a and t_a != t_b))
+                # Exception 3: Napkozi + Napkozi by DIFFERENT teachers
+                allow_nap_nap = is_nap_a and is_nap_b and t_a != t_b
 
-                if not (allow_nap_hab or allow_tesi_hab):
-                    conflict_pairs.append((idx_w, idx_other))
+                if allow_nap_hab or allow_tesi_hab or allow_nap_nap:
+                    continue  # These are explicitly allowed to be parallel!
 
-        # At most 1 whole-class lesson per slot
-        if len(whole_class_indices) > 1:
-            for d in range(DAYS):
-                for p in range(PERIODS):
-                    slot_vars = [X[idx, d, p] for idx in whole_class_indices if (d, p) in valid_slots[idx]]
-                    if len(slot_vars) > 1:
-                        model.Add(sum(slot_vars) <= 1)
+                # If both are whole class OR both belong to same subgroup -> conflict!
+                if (is_whole_a or is_whole_b) or (g_a != "" and g_a == g_b):
+                    conflict_pairs.append((idx_a, idx_b))
 
         # Apply conflict pair constraints
         for (idx_a, idx_b) in conflict_pairs:
@@ -259,10 +297,9 @@ def solve_cp_sat(data):
             if pen_val > 0:
                 penalties.append(X[i, d, p] * pen_val)
 
-    # Soft 2: Academic Lesson After Napközi on Same Day
+    # Soft 2: Academic Lesson After Napközi on Same Day (using direct slot penalties)
     for c_id, indices in class_to_lessons.items():
-        napközi_indices = [idx for idx in indices if "napközi" in lesson_units[idx]["subject_name"].lower() or "tanulószoba" in lesson_units[idx]["subject_name"].lower()]
-        academic_indices = [idx for idx in indices if idx not in napközi_indices and "habilitáció" not in lesson_units[idx]["subject_name"].lower()]
+        academic_indices = [idx for idx in indices if "napközi" not in lesson_units[idx]["subject_name"].lower() and "tanulószoba" not in lesson_units[idx]["subject_name"].lower() and "habilitáció" not in lesson_units[idx]["subject_name"].lower()]
 
         for d in range(DAYS):
             preserved_nap_periods = class_day_napkozi_periods.get((c_id, d), [])
@@ -275,16 +312,6 @@ def solve_cp_sat(data):
                     for p_nap in preserved_nap_periods:
                         if p_acad >= p_nap:
                             penalties.append(X[idx_acad, d_acad, p_acad] * 10000)
-
-                    # Check against new Napközi
-                    for idx_nap in napközi_indices:
-                        for (d_nap, p_nap) in valid_slots[idx_nap]:
-                            if d_nap != d:
-                                continue
-                            if p_acad >= p_nap:
-                                bad = model.NewBoolVar(f"bad_ord_{idx_nap}_{idx_acad}_{d}_{p_nap}_{p_acad}")
-                                model.AddBoolAnd([X[idx_nap, d, p_nap], X[idx_acad, d, p_acad]]).OnlyEnforceIf(bad)
-                                penalties.append(bad * 10000)
 
     # Soft 3: Mindennapos Testnevelés
     for c_id, indices in class_to_lessons.items():
@@ -323,47 +350,21 @@ def solve_cp_sat(data):
     if penalties:
         model.Minimize(sum(penalties))
 
-    # Greedy hint for warm start
-    used_teacher_slots = set(teacher_busy_slots)
-    used_class_slots = set(class_whole_busy_slots)
-    for i, unit in enumerate(lesson_units):
-        t_id = unit["teacher_id"]
-        c_id = unit["class_id"]
-        assigned = None
-        for (d, p) in valid_slots[i]:
-            if (t_id, d, p) not in used_teacher_slots and (c_id, d, p) not in used_class_slots:
-                assigned = (d, p)
-                break
-        if assigned is None and valid_slots[i]:
-            assigned = valid_slots[i][0]
-
-        for (d, p) in valid_slots[i]:
-            if (d, p) == assigned:
-                model.AddHint(X[i, d, p], 1)
-                if assigned:
-                    used_teacher_slots.add((t_id, assigned[0], assigned[1]))
-                    used_class_slots.add((c_id, assigned[0], assigned[1]))
-            else:
-                model.AddHint(X[i, d, p], 0)
-
-    # Solve model
+    # Solve model with SolutionCallback to capture feasible solutions
+    cb = TimetableSolutionCallback(lesson_units, valid_slots, X, preserved_lessons)
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 20.0
+    solver.parameters.max_time_in_seconds = 15.0
     solver.parameters.num_search_workers = 4
     solver.parameters.log_search_progress = False
-    status = solver.Solve(model)
+    solver.parameters.stop_after_first_solution = True
 
-    if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        placed_lessons = list(preserved_lessons)
-        for i, unit in enumerate(lesson_units):
-            for (d, p) in valid_slots[i]:
-                if solver.Value(X[i, d, p]) == 1:
-                    placed_lessons.append({
-                        "allocationId": unit["alloc_id"],
-                        "day": d,
-                        "period": p,
-                    })
-        return {"status": "OPTIMAL" if status == cp_model.OPTIMAL else "FEASIBLE", "placedLessons": placed_lessons}
+    status = solver.Solve(model, cb)
+
+    if cb.best_placed_lessons is not None:
+        return {
+            "status": "OPTIMAL" if status == cp_model.OPTIMAL else "FEASIBLE",
+            "placedLessons": cb.best_placed_lessons
+        }
     else:
         status_name = {cp_model.INFEASIBLE: 'INFEASIBLE', cp_model.UNKNOWN: 'UNKNOWN', cp_model.MODEL_INVALID: 'MODEL_INVALID'}.get(status, f'STATUS_{status}')
         return {"status": "INFEASIBLE", "message": f"CP-SAT solver status: {status_name}. Kérlek ellenőrizd a tanári elérhetőségeket és az óraszámokat!"}
