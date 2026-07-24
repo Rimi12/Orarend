@@ -351,10 +351,9 @@ def solve_cp_sat(data):
     # Solve model with SolutionCallback to capture feasible solutions
     cb = TimetableSolutionCallback(lesson_units, valid_slots, X, preserved_lessons)
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 30.0
+    solver.parameters.max_time_in_seconds = 15.0
     solver.parameters.num_search_workers = 1
     solver.parameters.log_search_progress = False
-    solver.parameters.stop_after_first_solution = True
 
     status = solver.Solve(model, cb)
 
