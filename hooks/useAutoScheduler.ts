@@ -398,7 +398,7 @@ export const useAutoScheduler = () => {
         })
       : [...placedLessons];
 
-    // Try Google OR-Tools CP-SAT Solver via /api/solve-timetable first
+    // Google OR-Tools CP-SAT Solver (single solver – no fallback)
     try {
       setProgress(20);
       const res = await fetch('/api/solve-timetable', {
@@ -422,7 +422,7 @@ export const useAutoScheduler = () => {
         if (data.status === 'OPTIMAL' || data.status === 'FEASIBLE') {
           console.log('[auto-scheduler] Google OR-Tools CP-SAT solved successfully:', data.status);
           const newPlacedLessons: PlacedLesson[] = [];
-          
+
           data.placedLessons.forEach((item: any) => {
             const alloc = allocations.find(a => a.id === item.allocationId);
             if (alloc) {
@@ -441,190 +441,22 @@ export const useAutoScheduler = () => {
           setIsGenerating(false);
           return;
         } else {
-          console.warn('[auto-scheduler] CP-SAT returned non-optimal status:', data.status, data.message || '');
+          const msg = data.message || 'Ismeretlen hiba';
+          console.error('[auto-scheduler] CP-SAT INFEASIBLE:', msg);
+          alert(`❌ Az AI nem tudott érvényes órarendet generálni.\n\nOk: ${msg}\n\nEllenőrizd az allokációkat és a szabályokat!`);
         }
+      } else {
+        alert(`❌ Az órarend-generáló szerver hibát adott vissza (HTTP ${res.status}). Kérlek próbáld újra!`);
       }
     } catch (err) {
-      console.warn('[auto-scheduler] OR-Tools API endpoint unavailable, using client-side CSP solver fallback');
+      console.error('[auto-scheduler] CP-SAT API hiba:', err);
+      alert('❌ Nem sikerült elérni az órarend-generáló szervert.\n\nEllenőrizd az internetkapcsolatot, és próbáld újra!');
     }
 
+    setIsGenerating(false);
+    setProgress(0);
 
-    // Client-side CSP Solver Fallback
-    setTimeout(() => {
-      if (!currentState || abortRef.current) return;
-
-      const lessonsToPlace: Allocation[] = [];
-      activeAllocations.forEach(alloc => {
-        for (let i = 0; i < alloc.weeklyHours; i++) {
-          lessonsToPlace.push(alloc);
-        }
-      });
-
-      if (lessonsToPlace.length === 0) {
-        alert("Nincsenek automatikusan tervezhető órák.");
-        setIsGenerating(false);
-        return;
-      }
-
-      let finalLessonsToPlace = [...lessonsToPlace];
-      if (!options.resetAll) {
-        const placedNonTraveling = placedLessons.filter(l => {
-          const teacher = teachers.find(t => t.id === l.allocation.teacherId);
-          return !teacher?.isTraveling;
-        });
-
-        placedNonTraveling.forEach(placed => {
-          const idx = finalLessonsToPlace.findIndex(a => a.id === placed.allocation.id);
-          if (idx > -1) {
-            finalLessonsToPlace.splice(idx, 1);
-          }
-        });
-      }
-
-      const allocationAvailableSlots = new Map<string, { day: number; period: number }[]>();
-      finalLessonsToPlace.forEach(alloc => {
-        if (!allocationAvailableSlots.has(alloc.id)) {
-          const teacher = teachers.find(t => t.id === alloc.teacherId)!;
-          allocationAvailableSlots.set(alloc.id, getTeacherAvailableSlots(teacher));
-        }
-      });
-
-      const populationSize = 60;
-      const maxGenerations = 300;
-      const mutationRate = 0.25;
-      const crossoverRate = 0.6;
-
-      const createRandomChromosome = (): Chromosome => {
-        const genes = finalLessonsToPlace.map(alloc => {
-          const slots = allocationAvailableSlots.get(alloc.id)!;
-          const randomSlot = slots[Math.floor(Math.random() * slots.length)];
-          return {
-            allocation: alloc,
-            day: randomSlot.day,
-            period: randomSlot.period
-          };
-        });
-
-        return { 
-          genes, 
-          fitness: calculateFitness(genes, teachers) 
-        };
-      };
-
-      let population: Chromosome[] = [];
-      for (let i = 0; i < populationSize; i++) {
-        population.push(createRandomChromosome());
-      }
-
-      let currentGen = 0;
-      const runGenerationChunk = () => {
-        if (abortRef.current) {
-          setIsGenerating(false);
-          return;
-        }
-
-        const chunkCount = 10;
-        for (let c = 0; c < chunkCount; c++) {
-          if (currentGen >= maxGenerations) break;
-
-          population.sort((a, b) => b.fitness - a.fitness);
-
-          const newPopulation: Chromosome[] = [];
-
-          for (let i = 0; i < 5; i++) {
-            newPopulation.push(population[i]);
-          }
-
-          const optimizedTop = runLocalSearch(newPopulation[0].genes, teachers, allocationAvailableSlots);
-          newPopulation[0] = {
-            genes: optimizedTop,
-            fitness: calculateFitness(optimizedTop, teachers)
-          };
-
-          while (newPopulation.length < populationSize) {
-            const tournamentSelect = () => {
-              const index1 = Math.floor(Math.random() * populationSize);
-              const index2 = Math.floor(Math.random() * populationSize);
-              return population[index1].fitness > population[index2].fitness ? population[index1] : population[index2];
-            };
-
-            const parent1 = tournamentSelect();
-            const parent2 = tournamentSelect();
-
-            let childGenes1 = parent1.genes.map(g => ({ ...g }));
-            let childGenes2 = parent2.genes.map(g => ({ ...g }));
-
-            if (Math.random() < crossoverRate && childGenes1.length > 1) {
-              const cutPoint = Math.floor(Math.random() * childGenes1.length);
-              for (let i = cutPoint; i < childGenes1.length; i++) {
-                const temp = childGenes1[i];
-                childGenes1[i] = childGenes2[i];
-                childGenes2[i] = temp;
-              }
-            }
-
-            const mutate = (genes: Chromosome['genes']) => {
-              return genes.map(g => {
-                if (Math.random() < mutationRate) {
-                  const slots = allocationAvailableSlots.get(g.allocation.id)!;
-                  const randomSlot = slots[Math.floor(Math.random() * slots.length)];
-                  return {
-                    ...g,
-                    day: randomSlot.day,
-                    period: randomSlot.period
-                  };
-                }
-                return g;
-              });
-            };
-
-            childGenes1 = mutate(childGenes1);
-            childGenes2 = mutate(childGenes2);
-
-            newPopulation.push({ genes: childGenes1, fitness: calculateFitness(childGenes1, teachers) });
-            if (newPopulation.length < populationSize) {
-              newPopulation.push({ genes: childGenes2, fitness: calculateFitness(childGenes2, teachers) });
-            }
-          }
-
-          population = newPopulation;
-          currentGen++;
-        }
-
-        population.sort((a, b) => b.fitness - a.fitness);
-        const best = population[0];
-        setGenerationCount(currentGen);
-        setBestFitness(best.fitness);
-        setProgress(Math.round((currentGen / maxGenerations) * 100));
-
-        if (currentGen < maxGenerations) {
-          setTimeout(runGenerationChunk, 15);
-        } else {
-          const finalOptimizedGenes = runLocalSearch(best.genes, teachers, allocationAvailableSlots);
-          const finalFitness = calculateFitness(finalOptimizedGenes, teachers);
-          
-          setBestFitness(finalFitness);
-          setProgress(100);
-          setIsGenerating(false);
-
-          const newPlacedLessons: PlacedLesson[] = [...preservedLessons];
-          finalOptimizedGenes.forEach(gene => {
-            newPlacedLessons.push({
-              id: `${gene.allocation.id}-${crypto.randomUUID()}`,
-              allocation: gene.allocation,
-              day: gene.day,
-              period: gene.period
-            });
-          });
-
-          setPlacedLessons(newPlacedLessons);
-        }
-      };
-
-      setTimeout(runGenerationChunk, 15);
-    }, 50);
-
-  }, [currentState, getTeacherAvailableSlots, runLocalSearch, calculateFitness, setPlacedLessons]);
+  }, [currentState, getTeacherAvailableSlots, setPlacedLessons]);
 
   const cancelGeneration = useCallback(() => {
     abortRef.current = true;
