@@ -337,27 +337,22 @@ def solve_cp_sat(data):
                         if d_x == d and p not in (0, 1):
                             penalties.append(X[idx, d_x, p] * 5000)
 
-            if len(new_pe_vars) > 0:
-                day_pe_total = model.NewIntVar(0, 8, f"pe_tot_{c_id}_{d}")
-                model.Add(day_pe_total == sum(new_pe_vars) + prev_pe)
-
-                diff = model.NewIntVar(-8, 8, f"pe_diff_{c_id}_{d}")
-                model.Add(diff == day_pe_total - target_pe)
-
-                abs_diff = model.NewIntVar(0, 8, f"pe_abs_{c_id}_{d}")
-                model.AddAbsEquality(abs_diff, diff)
-
-                penalties.append(abs_diff * 3000)
+            if len(new_pe_vars) > 1 and not is_swimming_day:
+                for pos1 in range(len(new_pe_vars)):
+                    for pos2 in range(pos1 + 1, len(new_pe_vars)):
+                        bad_pair = model.NewBoolVar(f"pe_mult_{c_id}_{d}_{pos1}_{pos2}")
+                        model.AddBoolAnd([new_pe_vars[pos1], new_pe_vars[pos2]]).OnlyEnforceIf(bad_pair)
+                        penalties.append(bad_pair * 3000)
 
     # Minimize total penalties
     if penalties:
         model.Minimize(sum(penalties))
 
-    # Solve model with SolutionCallback to capture feasible solutions
+    # Solve model with SolutionCallback to capture feasible solutions (single worker required for Python callbacks)
     cb = TimetableSolutionCallback(lesson_units, valid_slots, X, preserved_lessons)
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 15.0
-    solver.parameters.num_search_workers = 4
+    solver.parameters.max_time_in_seconds = 8.0
+    solver.parameters.num_search_workers = 1
     solver.parameters.log_search_progress = False
     solver.parameters.stop_after_first_solution = True
 
