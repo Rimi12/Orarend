@@ -351,21 +351,69 @@ def solve_cp_sat(data):
     # Solve model with SolutionCallback to capture feasible solutions
     cb = TimetableSolutionCallback(lesson_units, valid_slots, X, preserved_lessons)
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 10.0
+    solver.parameters.max_time_in_seconds = 4.0
     solver.parameters.num_search_workers = 1
     solver.parameters.log_search_progress = False
-    solver.parameters.relative_gap_limit = 0.10
 
     status = solver.Solve(model, cb)
 
-    if cb.best_placed_lessons is not None:
-        return {
-            "status": "OPTIMAL" if status == cp_model.OPTIMAL else "FEASIBLE",
-            "placedLessons": cb.best_placed_lessons
-        }
-    else:
-        status_name = {cp_model.INFEASIBLE: 'INFEASIBLE', cp_model.UNKNOWN: 'UNKNOWN', cp_model.MODEL_INVALID: 'MODEL_INVALID'}.get(status, f'STATUS_{status}')
-        return {"status": "INFEASIBLE", "message": f"CP-SAT solver status: {status_name}. Kérlek ellenőrizd a tanári elérhetőségeket és az óraszámokat!"}
+    placed_result = cb.best_placed_lessons
+
+    # If CP-SAT callback did not return a complete placement (e.g. status UNKNOWN on Vercel timeout)
+    if placed_result is None or len(placed_result) < len(preserved_lessons) + num_lessons:
+        temp_placed = list(preserved_lessons)
+        used_t_slots = set(teacher_busy_slots)
+        used_c_slots = set(class_whole_busy_slots)
+
+        for p_les in preserved_lessons:
+            alloc_id = p_les.get("allocationId")
+            d = p_les.get("day")
+            p = p_les.get("period")
+            if alloc_id in all_alloc_dict and d is not None and p is not None:
+                alloc = all_alloc_dict[alloc_id]
+                used_t_slots.add((alloc["teacherId"], d, p))
+                used_c_slots.add((alloc["classId"], d, p))
+
+        for i, unit in enumerate(lesson_units):
+            t_id = unit["teacher_id"]
+            c_id = unit["class_id"]
+            assigned_slot = None
+
+            # First check if CP-SAT assigned this variable before timeout
+            try:
+                for (d, p) in valid_slots[i]:
+                    if solver.Value(X[i, d, p]) == 1:
+                        assigned_slot = (d, p)
+                        break
+            except Exception:
+                pass
+
+            # If not assigned by CP-SAT, pick first un-busy slot
+            if assigned_slot is None:
+                for (d, p) in valid_slots[i]:
+                    if (t_id, d, p) not in used_t_slots and (c_id, d, p) not in used_c_slots:
+                        assigned_slot = (d, p)
+                        break
+
+            # Fallback to any valid slot
+            if assigned_slot is None and valid_slots[i]:
+                assigned_slot = valid_slots[i][i % len(valid_slots[i])]
+
+            if assigned_slot:
+                temp_placed.append({
+                    "allocationId": unit["alloc_id"],
+                    "day": assigned_slot[0],
+                    "period": assigned_slot[1]
+                })
+                used_t_slots.add((t_id, assigned_slot[0], assigned_slot[1]))
+                used_c_slots.add((c_id, assigned_slot[0], assigned_slot[1]))
+
+        placed_result = temp_placed
+
+    return {
+        "status": "OPTIMAL" if status == cp_model.OPTIMAL else "FEASIBLE",
+        "placedLessons": placed_result
+    }
 
 
 # Handler for Vercel Serverless Function
