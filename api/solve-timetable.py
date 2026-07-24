@@ -82,7 +82,7 @@ def solve_cp_sat(data):
                     if d < len(avail) and p < len(avail[d]) and avail[d][p] is False:
                         model.Add(X[i, d, p] == 0)
 
-    # Constraint 3: Strict Teacher Collision (No teacher can teach 2 lessons at the same time!)
+    # Constraint 3: Strict Teacher Collision
     teacher_to_lessons = {}
     for i, unit in enumerate(lesson_units):
         t_id = unit["teacher_id"]
@@ -91,6 +91,8 @@ def solve_cp_sat(data):
         teacher_to_lessons[t_id].append(i)
 
     for t_id, indices in teacher_to_lessons.items():
+        if len(indices) <= 1:
+            continue
         for d in range(DAYS):
             for p in range(PERIODS):
                 model.Add(sum(X[idx, d, p] for idx in indices) <= 1)
@@ -104,53 +106,58 @@ def solve_cp_sat(data):
         class_to_lessons[c_id].append(i)
 
     for c_id, indices in class_to_lessons.items():
+        if len(indices) <= 1:
+            continue
         c_name = class_dict.get(c_id, {}).get("name", "").lower()
-        for d in range(DAYS):
-            for p in range(PERIODS):
-                # Identify whole-class lessons vs group-bontott lessons
-                # Any group string like "", " (közös óra)", "egész osztály", etc. is whole-class
-                whole_class_indices = []
-                subgroup_map = {}
+        is_9_10 = "9." in c_name or "10." in c_name
 
-                for idx in indices:
-                    g_name = lesson_units[idx]["group_name"].strip().lower()
-                    if not g_name or "közös" in g_name or "egész" in g_name or g_name == "0":
-                        whole_class_indices.append(idx)
-                    else:
-                        if g_name not in subgroup_map:
-                            subgroup_map[g_name] = []
-                        subgroup_map[g_name].append(idx)
+        # Classify each lesson once (not inside d/p loops)
+        whole_class_indices = []
+        subgroup_map = {}
+        for idx in indices:
+            g_name = lesson_units[idx]["group_name"].strip().lower()
+            if not g_name or "közös" in g_name or "egész" in g_name or g_name == "0":
+                whole_class_indices.append(idx)
+            else:
+                if g_name not in subgroup_map:
+                    subgroup_map[g_name] = []
+                subgroup_map[g_name].append(idx)
 
-                # At most 1 whole-class lesson per (d, p) slot for class c
-                if len(whole_class_indices) > 1:
+        # Build list of conflicting pairs (computed once per class)
+        conflict_pairs = []
+        for idx_w in whole_class_indices:
+            s_w = lesson_units[idx_w]["subject_name"].lower()
+            t_w = lesson_units[idx_w]["teacher_id"]
+            is_hab_w = "habilitáció" in s_w or "rehabilitáció" in s_w
+            is_nap_w = "napközi" in s_w or "tanulószoba" in s_w or "szabadidő" in s_w
+            is_tesi_w = "testnevelés" in s_w or "tesi" in s_w
+
+            for idx_other in indices:
+                if idx_w >= idx_other:  # avoid duplicate pairs (a,b) and (b,a)
+                    continue
+                s_o = lesson_units[idx_other]["subject_name"].lower()
+                t_o = lesson_units[idx_other]["teacher_id"]
+                is_hab_o = "habilitáció" in s_o or "rehabilitáció" in s_o
+                is_nap_o = "napközi" in s_o or "tanulószoba" in s_o or "szabadidő" in s_o
+                is_tesi_o = "testnevelés" in s_o or "tesi" in s_o
+
+                allow_nap_hab = (is_hab_w and is_nap_o and t_w != t_o) or (is_hab_o and is_nap_w and t_w != t_o)
+                allow_tesi_hab = is_9_10 and ((is_hab_w and is_tesi_o and t_w != t_o) or (is_hab_o and is_tesi_w and t_w != t_o))
+
+                if not (allow_nap_hab or allow_tesi_hab):
+                    conflict_pairs.append((idx_w, idx_other))
+
+        # At most 1 whole-class lesson per slot
+        if len(whole_class_indices) > 1:
+            for d in range(DAYS):
+                for p in range(PERIODS):
                     model.Add(sum(X[idx, d, p] for idx in whole_class_indices) <= 1)
 
-                # If whole-class lesson active, no other lesson allowed unless allowed exception
-                for idx_w in whole_class_indices:
-                    for idx_other in indices:
-                        if idx_w == idx_other:
-                            continue
-
-                        s_w = lesson_units[idx_w]["subject_name"].lower()
-                        s_o = lesson_units[idx_other]["subject_name"].lower()
-                        t_w = lesson_units[idx_w]["teacher_id"]
-                        t_o = lesson_units[idx_other]["teacher_id"]
-
-                        is_hab_w = "habilitáció" in s_w or "rehabilitáció" in s_w
-                        is_hab_o = "habilitáció" in s_o or "rehabilitáció" in s_o
-                        is_nap_w = "napközi" in s_w or "tanulószoba" in s_w or "szabadidő" in s_w
-                        is_nap_o = "napközi" in s_o or "tanulószoba" in s_o or "szabadidő" in s_o
-                        is_tesi_w = "testnevelés" in s_w or "tesi" in s_w
-                        is_tesi_o = "testnevelés" in s_o or "tesi" in s_o
-                        is_9_10 = "9." in c_name or "10." in c_name
-
-                        # Exception: Habilitáció + Napközi by DIFFERENT teachers
-                        allow_nap_hab = (is_hab_w and is_nap_o and t_w != t_o) or (is_hab_o and is_nap_w and t_w != t_o)
-                        # Exception: Habilitáció + Tesi in 9-10. grade by DIFFERENT teachers
-                        allow_tesi_hab = is_9_10 and ((is_hab_w and is_tesi_o and t_w != t_o) or (is_hab_o and is_tesi_w and t_w != t_o))
-
-                        if not (allow_nap_hab or allow_tesi_hab):
-                            model.Add(X[idx_w, d, p] + X[idx_other, d, p] <= 1)
+        # Apply conflict pair constraints across all (d, p) slots
+        for (idx_a, idx_b) in conflict_pairs:
+            for d in range(DAYS):
+                for p in range(PERIODS):
+                    model.Add(X[idx_a, d, p] + X[idx_b, d, p] <= 1)
 
     # Constraint 5: Subject-specific time windows based on Grade Level
     for i, unit in enumerate(lesson_units):
