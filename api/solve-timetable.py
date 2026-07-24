@@ -61,26 +61,30 @@ def solve_cp_sat(data):
     DAYS = 5
     PERIODS = 8  # 0..7 (1. - 8. óra)
 
-    # Decision variables X[i, d, p] -> Bool
-    X = {}
-    for i in range(num_lessons):
-        for d in range(DAYS):
-            for p in range(PERIODS):
-                X[i, d, p] = model.NewBoolVar(f"x_{i}_{d}_{p}")
-
-    # Constraint 1: Each lesson placed exactly once
-    for i in range(num_lessons):
-        model.AddExactlyOne(X[i, d, p] for d in range(DAYS) for p in range(PERIODS))
-
-    # Constraint 2: Teacher Availability
+    # Pre-compute valid (day, period) slots per lesson based on teacher availability
+    valid_slots = {}  # lesson_idx -> list of (d, p)
     for i, unit in enumerate(lesson_units):
         t = teacher_dict.get(unit["teacher_id"])
-        if t and "availability" in t:
-            avail = t["availability"]
-            for d in range(DAYS):
-                for p in range(PERIODS):
-                    if d < len(avail) and p < len(avail[d]) and avail[d][p] is False:
-                        model.Add(X[i, d, p] == 0)
+        avail = t.get("availability", []) if t else []
+        slots = []
+        for d in range(DAYS):
+            for p in range(PERIODS):
+                if d < len(avail) and p < len(avail[d]):
+                    if avail[d][p] is not False:
+                        slots.append((d, p))
+                else:
+                    slots.append((d, p))  # No availability data = available
+        valid_slots[i] = slots if slots else [(d, p) for d in range(DAYS) for p in range(PERIODS)]
+
+    # Decision variables X[i, d, p] -> Bool (only for valid slots!)
+    X = {}
+    for i in range(num_lessons):
+        for (d, p) in valid_slots[i]:
+            X[i, d, p] = model.NewBoolVar(f"x_{i}_{d}_{p}")
+
+    # Constraint 1: Each lesson placed exactly once (among valid slots)
+    for i in range(num_lessons):
+        model.AddExactlyOne(X[i, d, p] for (d, p) in valid_slots[i])
 
     # Constraint 3: Strict Teacher Collision
     teacher_to_lessons = {}
@@ -273,23 +277,52 @@ def solve_cp_sat(data):
                     consecutive_pairs.append(pair)
                 model.Add(sum(consecutive_pairs) == 1)
 
+    # Greedy hint: assign each lesson to first available slot (warm start for solver)
+    # Track which (day, period) slots are already used per teacher and class
+    used_teacher_slots = {}  # teacher_id -> set of (d, p)
+    used_class_slots = {}    # class_id -> set of (d, p)
+    for i, unit in enumerate(lesson_units):
+        t_id = unit["teacher_id"]
+        c_id = unit["class_id"]
+        if t_id not in used_teacher_slots:
+            used_teacher_slots[t_id] = set()
+        if c_id not in used_class_slots:
+            used_class_slots[c_id] = set()
+        # Find first valid slot not used by this teacher or class
+        assigned = None
+        for (d, p) in valid_slots[i]:
+            if (d, p) not in used_teacher_slots[t_id] and (d, p) not in used_class_slots[c_id]:
+                assigned = (d, p)
+                break
+        if assigned is None and valid_slots[i]:
+            assigned = valid_slots[i][0]  # fallback
+        # Add hints
+        for (d, p) in valid_slots[i]:
+            if (d, p) == assigned:
+                model.AddHint(X[i, d, p], 1)
+                if assigned:
+                    used_teacher_slots[t_id].add(assigned)
+                    used_class_slots[c_id].add(assigned)
+            else:
+                model.AddHint(X[i, d, p], 0)
+
     # Solve model
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 15.0
-    solver.parameters.num_search_workers = 2
+    solver.parameters.max_time_in_seconds = 45.0
+    solver.parameters.num_search_workers = 4
+    solver.parameters.log_search_progress = False
     status = solver.Solve(model)
 
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         placed_lessons = list(preserved_lessons)
         for i, unit in enumerate(lesson_units):
-            for d in range(DAYS):
-                for p in range(PERIODS):
-                    if solver.Value(X[i, d, p]) == 1:
-                        placed_lessons.append({
-                            "allocationId": unit["alloc_id"],
-                            "day": d,
-                            "period": p,
-                        })
+            for (d, p) in valid_slots[i]:
+                if solver.Value(X[i, d, p]) == 1:
+                    placed_lessons.append({
+                        "allocationId": unit["alloc_id"],
+                        "day": d,
+                        "period": p,
+                    })
         return {"status": "OPTIMAL" if status == cp_model.OPTIMAL else "FEASIBLE", "placedLessons": placed_lessons}
     else:
         status_name = {cp_model.INFEASIBLE: 'INFEASIBLE', cp_model.UNKNOWN: 'UNKNOWN', cp_model.MODEL_INVALID: 'MODEL_INVALID'}.get(status, f'STATUS_{status}')
