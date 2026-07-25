@@ -149,12 +149,61 @@ export const useAutoScheduler = () => {
     }
   };
 
-  // Start 3-Phase Generation (Phase 1)
-  const generateTimetable = useCallback(async (options: { resetAll: boolean }) => {
+  // Calculate current placement status per group
+  const getGroupPlacementStatus = useCallback(() => {
+    if (!currentState) {
+      return {
+        g1Placed: 0, g1Total: 0,
+        g2Placed: 0, g2Total: 0,
+        g3Placed: 0, g3Total: 0,
+        recommendedStartPhase: 1
+      };
+    }
+
+    const { allocations, placedLessons, teachers } = currentState;
+    const activeAllocations = allocations.filter(a => {
+      const teacher = teachers.find(t => t.id === a.teacherId);
+      return !teacher?.isTraveling;
+    });
+
+    const { g1, g2, g3 } = partitionAllocations(activeAllocations);
+
+    const placedAllocIds = new Set(placedLessons.map(l => l.allocation.id));
+
+    const getPlacedHours = (group: Allocation[]) =>
+      group.filter(a => placedAllocIds.has(a.id)).reduce((sum, a) => sum + (a.weeklyHours || 1), 0);
+
+    const getTotalHours = (group: Allocation[]) =>
+      group.reduce((sum, a) => sum + (a.weeklyHours || 1), 0);
+
+    const g1Placed = getPlacedHours(g1);
+    const g1Total = getTotalHours(g1);
+    const g2Placed = getPlacedHours(g2);
+    const g2Total = getTotalHours(g2);
+    const g3Placed = getPlacedHours(g3);
+    const g3Total = getTotalHours(g3);
+
+    let recommendedStartPhase = 1;
+    if (g1Total > 0 && g1Placed >= g1Total * 0.9) {
+      if (g2Total > 0 && g2Placed >= g2Total * 0.9) {
+        recommendedStartPhase = 3;
+      } else {
+        recommendedStartPhase = 2;
+      }
+    }
+
+    return {
+      g1Placed, g1Total,
+      g2Placed, g2Total,
+      g3Placed, g3Total,
+      recommendedStartPhase
+    };
+  }, [currentState, partitionAllocations]);
+
+  // Start 3-Phase Generation (Phase 1, Phase 2, or Phase 3)
+  const generateTimetable = useCallback(async (options: { resetAll: boolean; startPhase?: number }) => {
     if (!currentState) return;
     setIsGenerating(true);
-    setProgress(10);
-    setCurrentPhase(1);
     setWaitingForNextPhase(false);
     setHasRun(false);
 
@@ -165,15 +214,7 @@ export const useAutoScheduler = () => {
       return !teacher?.isTraveling;
     });
 
-    const initialPreserved = options.resetAll
-      ? placedLessons.filter(l => {
-          const teacher = teachers.find(t => t.id === l.allocation.teacherId);
-          return teacher?.isTraveling;
-        })
-      : [...placedLessons];
-
     const { g1, g2, g3 } = partitionAllocations(activeAllocations);
-    phaseGroupsRef.current = { g1, g2, g3, initialPreserved, resetAll: options.resetAll };
 
     setPhaseStats({
       g1Count: g1.reduce((s, a) => s + (a.weeklyHours || 1), 0),
@@ -181,22 +222,67 @@ export const useAutoScheduler = () => {
       g3Count: g3.reduce((s, a) => s + (a.weeklyHours || 1), 0)
     });
 
-    setProgress(25);
+    const status = getGroupPlacementStatus();
+    const targetPhase = options.startPhase || (options.resetAll ? 1 : status.recommendedStartPhase);
 
-    // Run Phase 1
-    const result1 = await runPhaseSolve(1, g1, initialPreserved);
-    if (result1) {
-      currentAccumulatedPlacedRef.current = result1;
-      setPlacedLessons(result1);
-      setProgress(33);
-      setIsGenerating(false);
-      setWaitingForNextPhase(true);
-    } else {
-      setIsGenerating(false);
-      setProgress(0);
-      setCurrentPhase(0);
+    const initialPreserved = options.resetAll
+      ? placedLessons.filter(l => {
+          const teacher = teachers.find(t => t.id === l.allocation.teacherId);
+          return teacher?.isTraveling;
+        })
+      : [...placedLessons];
+
+    phaseGroupsRef.current = { g1, g2, g3, initialPreserved, resetAll: options.resetAll };
+    currentAccumulatedPlacedRef.current = [...initialPreserved];
+
+    if (targetPhase === 1) {
+      setCurrentPhase(1);
+      setProgress(25);
+      const result1 = await runPhaseSolve(1, g1, initialPreserved);
+      if (result1) {
+        currentAccumulatedPlacedRef.current = result1;
+        setPlacedLessons(result1);
+        setProgress(33);
+        setIsGenerating(false);
+        setWaitingForNextPhase(true);
+      } else {
+        setIsGenerating(false);
+        setProgress(0);
+        setCurrentPhase(0);
+      }
+    } else if (targetPhase === 2) {
+      setCurrentPhase(2);
+      setProgress(50);
+      const result2 = await runPhaseSolve(2, g2, initialPreserved);
+      if (result2) {
+        currentAccumulatedPlacedRef.current = result2;
+        setPlacedLessons(result2);
+        setProgress(66);
+        setIsGenerating(false);
+        setWaitingForNextPhase(true);
+      } else {
+        setIsGenerating(false);
+        setProgress(0);
+        setCurrentPhase(0);
+      }
+    } else if (targetPhase === 3) {
+      setCurrentPhase(3);
+      setProgress(80);
+      const result3 = await runPhaseSolve(3, g3, initialPreserved);
+      if (result3) {
+        currentAccumulatedPlacedRef.current = result3;
+        setPlacedLessons(result3);
+        setProgress(100);
+        setIsGenerating(false);
+        setWaitingForNextPhase(false);
+        setHasRun(true);
+      } else {
+        setIsGenerating(false);
+        setProgress(0);
+        setCurrentPhase(0);
+      }
     }
-  }, [currentState, partitionAllocations, setPlacedLessons]);
+  }, [currentState, partitionAllocations, getGroupPlacementStatus, setPlacedLessons]);
 
   // Proceed to next phase (Phase 2 or Phase 3)
   const proceedToNextPhase = useCallback(async () => {
@@ -259,6 +345,7 @@ export const useAutoScheduler = () => {
     waitingForNextPhase,
     hasRun,
     phaseStats,
+    groupPlacementStatus: getGroupPlacementStatus(),
     generateTimetable,
     proceedToNextPhase,
     cancelGeneration

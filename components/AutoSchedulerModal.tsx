@@ -11,7 +11,13 @@ interface AutoSchedulerModalProps {
   waitingForNextPhase: boolean;
   hasRun: boolean;
   phaseStats: { g1Count: number; g2Count: number; g3Count: number };
-  onGenerate: (options: { resetAll: boolean }) => void;
+  groupPlacementStatus?: {
+    g1Placed: number; g1Total: number;
+    g2Placed: number; g2Total: number;
+    g3Placed: number; g3Total: number;
+    recommendedStartPhase: number;
+  };
+  onGenerate: (options: { resetAll: boolean; startPhase?: number }) => void;
   onProceed: () => void;
   onCancel: () => void;
 }
@@ -25,16 +31,21 @@ export const AutoSchedulerModal: React.FC<AutoSchedulerModalProps> = ({
   waitingForNextPhase,
   hasRun,
   phaseStats,
+  groupPlacementStatus,
   onGenerate,
   onProceed,
   onCancel
 }) => {
-  const [resetAll, setResetAll] = useState(true);
+  const [resetAll, setResetAll] = useState(false);
+  const recommendedPhase = groupPlacementStatus?.recommendedStartPhase || 1;
+  const [selectedStartPhase, setSelectedStartPhase] = useState<number>(recommendedPhase);
 
   if (!isOpen) return null;
 
+  const effectiveStartPhase = resetAll ? 1 : selectedStartPhase;
+
   const handleStart = () => {
-    onGenerate({ resetAll });
+    onGenerate({ resetAll, startPhase: effectiveStartPhase });
   };
 
   const getPhaseName = (phase: number) => {
@@ -69,31 +80,56 @@ export const AutoSchedulerModal: React.FC<AutoSchedulerModalProps> = ({
         {!isGenerating && !waitingForNextPhase && !hasRun && (
           <div>
             <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
-              Az AI 3 egymást követő lépésben készíti el az órarendet a maximális megbízhatóság érdekében. Minden csoport végén megkérdezi a továbblépést:
+              Az AI 3 egymást követő lépésben készíti el az órarendet a maximális megbízhatóság érdekében:
             </p>
 
-            <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl p-3 mb-6 text-xs text-blue-900 dark:text-blue-200 space-y-1">
+            <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl p-3 mb-4 text-xs text-blue-900 dark:text-blue-200 space-y-1">
               <div className="font-semibold text-sm mb-1">📅 Szakaszos Tervezés Csoportjai:</div>
-              <div>🔹 <strong>1. csoport:</strong> Csak 1 osztályban tanítók ({phaseStats.g1Count} tanóra)</div>
-              <div>🔹 <strong>2. csoport:</strong> Kiemelt több osztályos függőségek ({phaseStats.g2Count} tanóra)</div>
-              <div>🔹 <strong>3. csoport:</strong> Maradék pedagógusok ({phaseStats.g3Count} tanóra)</div>
+              <div className="flex items-center justify-between">
+                <span>🔹 <strong>1. csoport:</strong> Csak 1 osztályban tanítók ({phaseStats.g1Count} tanóra)</span>
+                {groupPlacementStatus && groupPlacementStatus.g1Placed >= groupPlacementStatus.g1Total * 0.9 && (
+                  <span className="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 px-2 py-0.5 rounded text-[10px] font-bold">✅ Beosztva</span>
+                )}
+              </div>
+              <div className="flex items-center justify-between">
+                <span>🔹 <strong>2. csoport:</strong> Kiemelt több osztályos függőségek ({phaseStats.g2Count} tanóra)</span>
+                {groupPlacementStatus && groupPlacementStatus.g2Placed >= groupPlacementStatus.g2Total * 0.9 && (
+                  <span className="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 px-2 py-0.5 rounded text-[10px] font-bold">✅ Beosztva</span>
+                )}
+              </div>
+              <div className="flex items-center justify-between">
+                <span>🔹 <strong>3. csoport:</strong> Maradék pedagógusok ({phaseStats.g3Count} tanóra)</span>
+                {groupPlacementStatus && groupPlacementStatus.g3Placed >= groupPlacementStatus.g3Total * 0.9 && (
+                  <span className="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 px-2 py-0.5 rounded text-[10px] font-bold">✅ Beosztva</span>
+                )}
+              </div>
             </div>
+
+            {/* Status notice if resuming */}
+            {!resetAll && recommendedPhase > 1 && (
+              <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl text-green-800 dark:text-green-200 mb-4 text-xs font-medium">
+                ✨ <strong>Folytatás:</strong> {recommendedPhase === 2 ? 'Az 1. csoport órái már be vannak osztva! A 2. csoporttól folytathatod.' : 'Az 1. és 2. csoport órái be vannak osztva! A 3. csoporttól folytathatod.'}
+              </div>
+            )}
 
             {/* Selection Options */}
             <div className="bg-gray-50 dark:bg-gray-700/30 p-4 rounded-xl border border-gray-200 dark:border-gray-700 mb-6">
               <span className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-3">Tervezési mód:</span>
-              
+
               <label className="flex items-start gap-3 cursor-pointer mb-4">
                 <input
                   type="radio"
                   name="schedule-mode"
                   className="mt-1 h-4.5 w-4.5 text-blue-600 border-gray-300 focus:ring-blue-500"
-                  checked={resetAll}
-                  onChange={() => setResetAll(true)}
+                  checked={!resetAll}
+                  onChange={() => {
+                    setResetAll(false);
+                    setSelectedStartPhase(recommendedPhase);
+                  }}
                 />
                 <div>
-                  <span className="block text-sm font-semibold text-gray-800 dark:text-gray-200">Teljes órarend újratervezése</span>
-                  <span className="block text-xs text-gray-500 dark:text-gray-400">Törli a jelenleg beosztott órákat (kivéve az utazók óráit) és 3 lépésben teljesen újat generál.</span>
+                  <span className="block text-sm font-semibold text-gray-800 dark:text-gray-200">Csak a beosztatlan órák elhelyezése (Folytatás)</span>
+                  <span className="block text-xs text-gray-500 dark:text-gray-400">Megtartja a már beosztott órákat, és a következő beosztatlan csoporttól folytatja a tervezést.</span>
                 </div>
               </label>
 
@@ -102,14 +138,32 @@ export const AutoSchedulerModal: React.FC<AutoSchedulerModalProps> = ({
                   type="radio"
                   name="schedule-mode"
                   className="mt-1 h-4.5 w-4.5 text-blue-600 border-gray-300 focus:ring-blue-500"
-                  checked={!resetAll}
-                  onChange={() => setResetAll(false)}
+                  checked={resetAll}
+                  onChange={() => {
+                    setResetAll(true);
+                    setSelectedStartPhase(1);
+                  }}
                 />
                 <div>
-                  <span className="block text-sm font-semibold text-gray-800 dark:text-gray-200">Csak a beosztatlan órák elhelyezése</span>
-                  <span className="block text-xs text-gray-500 dark:text-gray-400">Megtartja a kézzel beosztott órákat, és csak a megmaradt órákat tervezi be.</span>
+                  <span className="block text-sm font-semibold text-gray-800 dark:text-gray-200">Teljes órarend újratervezése</span>
+                  <span className="block text-xs text-gray-500 dark:text-gray-400">Törli a beosztott órákat és elölről (1. csoporttól) újraindítja a 3-fázisú generálást.</span>
                 </div>
               </label>
+
+              {!resetAll && (
+                <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600 flex items-center justify-between text-xs">
+                  <span className="font-semibold text-gray-700 dark:text-gray-300">Generálás indítása erről a csoportról:</span>
+                  <select
+                    value={selectedStartPhase}
+                    onChange={(e) => setSelectedStartPhase(Number(e.target.value))}
+                    className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded px-2.5 py-1 text-xs text-gray-800 dark:text-gray-200 font-medium"
+                  >
+                    <option value={1}>1. csoport (egy osztályosok)</option>
+                    <option value={2}>2. csoport (kiemelt több osztályosok)</option>
+                    <option value={3}>3. csoport (maradék pedagógusok)</option>
+                  </select>
+                </div>
+              )}
             </div>
 
             {/* Buttons */}
@@ -124,7 +178,7 @@ export const AutoSchedulerModal: React.FC<AutoSchedulerModalProps> = ({
                 onClick={handleStart}
                 className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors flex items-center gap-2"
               >
-                🚀 1. Csoport generálása (Indítás)
+                🚀 {effectiveStartPhase}. Csoport generálása ({effectiveStartPhase > 1 && !resetAll ? 'Folytatás' : 'Indítás'})
               </button>
             </div>
           </div>

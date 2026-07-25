@@ -342,6 +342,7 @@ const Main: React.FC = () => {
         waitingForNextPhase={autoScheduler.waitingForNextPhase}
         hasRun={autoScheduler.hasRun}
         phaseStats={autoScheduler.phaseStats}
+        groupPlacementStatus={autoScheduler.groupPlacementStatus}
         onGenerate={autoScheduler.generateTimetable}
         onProceed={autoScheduler.proceedToNextPhase}
         onCancel={autoScheduler.cancelGeneration}
