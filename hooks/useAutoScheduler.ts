@@ -35,57 +35,61 @@ export const useAutoScheduler = () => {
 
   const currentAccumulatedPlacedRef = useRef<PlacedLesson[]>([]);
 
-  // Partition allocations into 3 groups
+  // Partition allocations into 3 groups (Group 1: Óvoda + 1-4. osztályok & tanáraik minden órája, Group 2: Felsősök 5-8, Group 3: Középiskola/Szakiskola/Egyéb)
   const partitionAllocations = useCallback((activeAllocations: Allocation[]) => {
-    const teacherClassCounts = new Map<string, Set<string>>();
-    activeAllocations.forEach(a => {
-      if (!teacherClassCounts.has(a.teacherId)) {
-        teacherClassCounts.set(a.teacherId, new Set());
+    if (!currentState) return { g1: [], g2: [], g3: [] };
+    const { classes } = currentState;
+
+    const isLowerGradeClass = (className: string): boolean => {
+      const name = className.toLowerCase().trim();
+      if (name.includes('óvoda') || name.includes('ovoda')) return true;
+      if (/\b(1|2|3|4)(\.|\/|[a-z]|\s|$)/.test(name)) {
+        if (!/\b(10|11|12|14|15|16|17|18|19|20|5|6|7|8|9)\b/.test(name)) {
+          return true;
+        }
       }
-      teacherClassCounts.get(a.teacherId)!.add(a.classId);
-    });
-
-    const singleClassTeacherIds = new Set<string>();
-    const multiClassTeachers: { teacherId: string; classCount: number; hours: number }[] = [];
-
-    teacherClassCounts.forEach((classesSet, teacherId) => {
-      if (classesSet.size === 1) {
-        singleClassTeacherIds.add(teacherId);
-      } else {
-        const totalHours = activeAllocations
-          .filter(a => a.teacherId === teacherId)
-          .reduce((sum, a) => sum + (a.weeklyHours || 1), 0);
-        multiClassTeachers.push({
-          teacherId,
-          classCount: classesSet.size,
-          hours: totalHours
-        });
+      if (name.includes('hit-') || name.includes('etika')) {
+        if (/\b[1-4]\b/.test(name)) return true;
       }
-    });
+      return false;
+    };
 
-    multiClassTeachers.sort((a, b) => b.classCount - a.classCount || b.hours - a.hours);
+    const isUpperGradeClass = (className: string): boolean => {
+      return /\b(5|6|7|8)\b/.test(className.toLowerCase());
+    };
 
-    const halfCount = Math.max(1, Math.ceil(multiClassTeachers.length / 2));
-    const group2TeacherIds = new Set(
-      multiClassTeachers.slice(0, halfCount).map(t => t.teacherId)
+    const lowerClassIds = new Set(
+      classes.filter(c => isLowerGradeClass(c.name)).map(c => c.id)
     );
+
+    // Find all teachers who teach in Óvoda or 1-4 grades
+    const phase1TeacherIds = new Set<string>();
+    activeAllocations.forEach(a => {
+      if (lowerClassIds.has(a.classId)) {
+        phase1TeacherIds.add(a.teacherId);
+      }
+    });
 
     const g1: Allocation[] = [];
     const g2: Allocation[] = [];
     const g3: Allocation[] = [];
 
     activeAllocations.forEach(a => {
-      if (singleClassTeacherIds.has(a.teacherId)) {
+      const className = classes.find(c => c.id === a.classId)?.name || '';
+      if (phase1TeacherIds.has(a.teacherId)) {
+        // Pedagógusok akik alsósokban is tanítanak: az összes órájuk az 1. csoportba kerül
         g1.push(a);
-      } else if (group2TeacherIds.has(a.teacherId)) {
+      } else if (isUpperGradeClass(className)) {
+        // Felsős osztályok (5-8) tanárai: 2. csoport
         g2.push(a);
       } else {
+        // Középiskola / Szakiskola / Egyéb: 3. csoport
         g3.push(a);
       }
     });
 
     return { g1, g2, g3 };
-  }, []);
+  }, [currentState]);
 
   // Run CP-SAT for a specific phase
   const runPhaseSolve = async (

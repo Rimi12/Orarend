@@ -394,6 +394,8 @@ def solve_cp_sat(data):
         for i, unit in enumerate(lesson_units):
             t_id = unit["teacher_id"]
             c_id = unit["class_id"]
+            s_name = unit["subject_name"].lower()
+            is_sec = any(k in s_name for k in secondary_keywords)
             g_name = unit["group_name"]
             is_whole = not g_name
             assigned_slot = None

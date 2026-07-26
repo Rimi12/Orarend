@@ -51,11 +51,11 @@ export const AutoSchedulerModal: React.FC<AutoSchedulerModalProps> = ({
   const getPhaseName = (phase: number) => {
     switch (phase) {
       case 1:
-        return '1. Csoport: Egy osztályban tanítók';
+        return '1. Csoport: Óvoda + 1-4. osztályok (és érintett pedagógusok órái)';
       case 2:
-        return '2. Csoport: Több osztályos kiemelt függőségek';
+        return '2. Csoport: Felsősök (5-8. osztályok)';
       case 3:
-        return '3. Csoport: Maradék órák és tanárok';
+        return '3. Csoport: Középiskola, szakiskola és egyéb osztályok';
       default:
         return '';
     }
@@ -86,19 +86,19 @@ export const AutoSchedulerModal: React.FC<AutoSchedulerModalProps> = ({
             <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl p-3 mb-4 text-xs text-blue-900 dark:text-blue-200 space-y-1">
               <div className="font-semibold text-sm mb-1">📅 Szakaszos Tervezés Csoportjai:</div>
               <div className="flex items-center justify-between">
-                <span>🔹 <strong>1. csoport:</strong> Csak 1 osztályban tanítók ({phaseStats.g1Count} tanóra)</span>
+                <span>🔹 <strong>1. csoport:</strong> Óvoda + 1-4. osztályok & tanáraik minden órája ({phaseStats.g1Count} tanóra)</span>
                 {groupPlacementStatus && groupPlacementStatus.g1Placed >= groupPlacementStatus.g1Total * 0.9 && (
                   <span className="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 px-2 py-0.5 rounded text-[10px] font-bold">✅ Beosztva</span>
                 )}
               </div>
               <div className="flex items-center justify-between">
-                <span>🔹 <strong>2. csoport:</strong> Kiemelt több osztályos függőségek ({phaseStats.g2Count} tanóra)</span>
+                <span>🔹 <strong>2. csoport:</strong> Felsősök (5-8. osztályok) ({phaseStats.g2Count} tanóra)</span>
                 {groupPlacementStatus && groupPlacementStatus.g2Placed >= groupPlacementStatus.g2Total * 0.9 && (
                   <span className="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 px-2 py-0.5 rounded text-[10px] font-bold">✅ Beosztva</span>
                 )}
               </div>
               <div className="flex items-center justify-between">
-                <span>🔹 <strong>3. csoport:</strong> Maradék pedagógusok ({phaseStats.g3Count} tanóra)</span>
+                <span>🔹 <strong>3. csoport:</strong> Középiskola / Szakiskola / Egyéb ({phaseStats.g3Count} tanóra)</span>
                 {groupPlacementStatus && groupPlacementStatus.g3Placed >= groupPlacementStatus.g3Total * 0.9 && (
                   <span className="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 px-2 py-0.5 rounded text-[10px] font-bold">✅ Beosztva</span>
                 )}
@@ -108,7 +108,7 @@ export const AutoSchedulerModal: React.FC<AutoSchedulerModalProps> = ({
             {/* Status notice if resuming */}
             {!resetAll && recommendedPhase > 1 && (
               <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl text-green-800 dark:text-green-200 mb-4 text-xs font-medium">
-                ✨ <strong>Folytatás:</strong> {recommendedPhase === 2 ? 'Az 1. csoport órái már be vannak osztva! A 2. csoporttól folytathatod.' : 'Az 1. és 2. csoport órái be vannak osztva! A 3. csoporttól folytathatod.'}
+                ✨ <strong>Folytatás:</strong> {recommendedPhase === 2 ? 'Az 1. csoport (Óvoda + 1-4. osztályok és tanáraik) már be van osztva! A 2. csoporttól (Felsősök) folytathatod.' : 'Az 1. és 2. csoport órái be vannak osztva! A 3. csoporttól folytathatod.'}
               </div>
             )}
 
@@ -146,7 +146,7 @@ export const AutoSchedulerModal: React.FC<AutoSchedulerModalProps> = ({
                 />
                 <div>
                   <span className="block text-sm font-semibold text-gray-800 dark:text-gray-200">Teljes órarend újratervezése</span>
-                  <span className="block text-xs text-gray-500 dark:text-gray-400">Törli a beosztott órákat és elölről (1. csoporttól) újraindítja a 3-fázisú generálást.</span>
+                  <span className="block text-xs text-gray-500 dark:text-gray-400">Törli a beosztott órákat és elölről (1. csoport: Óvoda + 1-4) újraindítja a generálást.</span>
                 </div>
               </label>
 
@@ -158,9 +158,9 @@ export const AutoSchedulerModal: React.FC<AutoSchedulerModalProps> = ({
                     onChange={(e) => setSelectedStartPhase(Number(e.target.value))}
                     className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded px-2.5 py-1 text-xs text-gray-800 dark:text-gray-200 font-medium"
                   >
-                    <option value={1}>1. csoport (egy osztályosok)</option>
-                    <option value={2}>2. csoport (kiemelt több osztályosok)</option>
-                    <option value={3}>3. csoport (maradék pedagógusok)</option>
+                    <option value={1}>1. csoport (Óvoda + 1-4. osztályok)</option>
+                    <option value={2}>2. csoport (Felsősök 5-8)</option>
+                    <option value={3}>3. csoport (Középiskola / Egyéb)</option>
                   </select>
                 </div>
               )}
@@ -228,15 +228,15 @@ export const AutoSchedulerModal: React.FC<AutoSchedulerModalProps> = ({
               </svg>
               <div>
                 <span className="block font-bold text-base">
-                  {currentPhase === 1 && '1. Csoport (egy osztályos pedagógusok) órarendje elkészült!'}
-                  {currentPhase === 2 && '2. Csoport (kiemelt több osztályos pedagógusok) órarendje elkészült!'}
+                  {currentPhase === 1 && '1. Csoport (Óvoda + 1-4. osztályok & pedagógusaik) órarendje elkészült!'}
+                  {currentPhase === 2 && '2. Csoport (Felsősök 5-8. osztályok) órarendje elkészült!'}
                 </span>
                 <span className="text-xs">A rendszer sikeresen beosztotta a(z) {currentPhase}. csoport óráit.</span>
               </div>
             </div>
 
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 mb-6 text-sm text-blue-900 dark:text-blue-200 font-medium">
-              ❓ <strong>Kérdés:</strong> Jöhet a(z) {currentPhase + 1}. csoport ({currentPhase === 1 ? 'több osztályos kiemelt pedagógusok' : 'maradék pedagógusok'}) órarendjének a létrehozása?
+              ❓ <strong>Kérdés:</strong> Jöhet a(z) {currentPhase + 1}. csoport ({currentPhase === 1 ? 'Felsősök 5-8. osztályok' : 'Középiskola / Egyéb osztályok'}) órarendjének a létrehozása?
             </div>
 
             <div className="flex justify-between items-center gap-3">
@@ -244,7 +244,7 @@ export const AutoSchedulerModal: React.FC<AutoSchedulerModalProps> = ({
                 onClick={onCancel}
                 className="px-4 py-2 bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200 font-semibold rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors text-sm"
               >
-                Leállítás ezen a ponton
+                Leállítás ezen a ponton (Ellenőrzés)
               </button>
 
               <button
