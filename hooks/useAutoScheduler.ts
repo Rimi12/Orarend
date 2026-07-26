@@ -340,12 +340,14 @@ export const useAutoScheduler = () => {
 
   // Automatically reset hasRun when allocations change or placedLessons are cleared
   const prevAllocLengthRef = useRef<number>(0);
-  if (currentState?.allocations && currentState.allocations.length !== prevAllocLengthRef.current) {
-    prevAllocLengthRef.current = currentState.allocations.length;
-    setHasRun(false);
-    setWaitingForNextPhase(false);
-    setCurrentPhase(0);
-  }
+  useEffect(() => {
+    if (currentState?.allocations && currentState.allocations.length !== prevAllocLengthRef.current) {
+      prevAllocLengthRef.current = currentState.allocations.length;
+      setHasRun(false);
+      setWaitingForNextPhase(false);
+      setCurrentPhase(0);
+    }
+  }, [currentState?.allocations]);
 
   return {
     isGenerating,

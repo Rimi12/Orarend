@@ -286,7 +286,7 @@ const Main: React.FC = () => {
                 findSubject={findSubject}
                 findTeacher={findTeacher}
                 viewType="teacher"
-                isLocked={(day, period) => !(selectedTeacher.availability[day]?.[period] ?? true)}
+                isLocked={(day, period) => !(selectedTeacher?.availability?.[day]?.[period] ?? true)}
                 draggedAllocation={draggedAllocation}
                 checkCollision={checkCollision}
                 onExport={() => handleExport('teacher')}
