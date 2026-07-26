@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useTimetable } from '../contexts/TimetableContext.tsx';
 import type { Allocation, PlacedLesson, Teacher } from '../types.ts';
 
