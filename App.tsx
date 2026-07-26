@@ -170,24 +170,8 @@ const Main: React.FC = () => {
     getUnplacedLessonsForTeacher
   );
 
-
-  if (!dataLoaded || !currentState) {
-    return <FileUploadScreen
-        onDataLoaded={loadParsedData}
-        onLoadFromStorage={loadStateFromStorage}
-        onLoadFromSaveFile={handleLoadStateFromJson}
-        googleDrive={googleDrive}
-        onLoadFromDrive={handleLoadFromDrive}
-      />;
-  }
-  
-  const { placedLessons } = currentState;
-
   const selectedTeacher = findTeacher(selectedTeacherId || '');
   const selectedClass = findClass(selectedClassId || '');
-  
-  const teacherTimetableLessons = placedLessons.filter(l => l.allocation.teacherId === selectedTeacherId);
-  const classTimetableLessons = placedLessons.filter(l => l.allocation.classId === selectedClassId);
 
   const handleClearClassTimetable = useCallback(() => {
     if (selectedClass) {
@@ -204,6 +188,21 @@ const Main: React.FC = () => {
       }
     }
   }, [selectedTeacher, clearTeacherTimetable]);
+
+  if (!dataLoaded || !currentState) {
+    return <FileUploadScreen
+        onDataLoaded={loadParsedData}
+        onLoadFromStorage={loadStateFromStorage}
+        onLoadFromSaveFile={handleLoadStateFromJson}
+        googleDrive={googleDrive}
+        onLoadFromDrive={handleLoadFromDrive}
+      />;
+  }
+  
+  const { placedLessons } = currentState;
+  
+  const teacherTimetableLessons = placedLessons.filter(l => l.allocation.teacherId === selectedTeacherId);
+  const classTimetableLessons = placedLessons.filter(l => l.allocation.classId === selectedClassId);
   
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 p-4 lg:p-8" onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragOver={handleGlobalDragOver}>
