@@ -338,6 +338,15 @@ export const useAutoScheduler = () => {
     setHasRun(false);
   }, []);
 
+  // Automatically reset hasRun when allocations change or placedLessons are cleared
+  const prevAllocLengthRef = useRef<number>(0);
+  if (currentState?.allocations && currentState.allocations.length !== prevAllocLengthRef.current) {
+    prevAllocLengthRef.current = currentState.allocations.length;
+    setHasRun(false);
+    setWaitingForNextPhase(false);
+    setCurrentPhase(0);
+  }
+
   return {
     isGenerating,
     progress,
@@ -348,7 +357,8 @@ export const useAutoScheduler = () => {
     groupPlacementStatus: getGroupPlacementStatus(),
     generateTimetable,
     proceedToNextPhase,
-    cancelGeneration
+    cancelGeneration,
+    resetSchedulerState: cancelGeneration
   };
 };
 

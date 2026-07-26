@@ -270,10 +270,16 @@ export const AutoSchedulerModal: React.FC<AutoSchedulerModalProps> = ({
               </div>
             </div>
 
-            <div className="flex justify-end">
+            <div className="flex flex-col sm:flex-row gap-3 justify-between">
+              <button
+                onClick={() => onGenerate({ resetAll: true, startPhase: 1 })}
+                className="px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors flex items-center justify-center gap-2 text-sm"
+              >
+                🚀 Újraindítás / Új Generálás (1. csoporttól)
+              </button>
               <button
                 onClick={onClose}
-                className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors"
+                className="px-5 py-2.5 bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200 font-semibold rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors text-sm text-center"
               >
                 Bezárás és Órarend Megtekintése
               </button>
