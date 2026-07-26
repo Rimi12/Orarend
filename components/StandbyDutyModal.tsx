@@ -1,12 +1,14 @@
 
 
-import React from 'react';
+import React, { useRef } from 'react';
 import * as XLSX from 'xlsx';
 import type { Teacher } from '../types.ts';
 import { DAYS_OF_WEEK, PERIODS } from '../constants.ts';
 import { ExportIcon } from './icons/ExportIcon.tsx';
 import { WrenchScrewdriverIcon } from './icons/WrenchScrewdriverIcon.tsx';
 import { SpinnerIcon } from './icons/SpinnerIcon.tsx';
+import { DocumentArrowDownIcon } from './icons/DocumentArrowDownIcon.tsx';
+import { DocumentRefreshIcon } from './icons/DocumentRefreshIcon.tsx';
 
 interface StandbyDutyModalProps {
   isOpen: boolean;
@@ -15,9 +17,13 @@ interface StandbyDutyModalProps {
   report: { eligibleTeachers: Teacher[]; unassignedTeachers: Teacher[]; understaffedSlots: { day: number; period: number; count: number }[]; aiExplanation?: string } | null;
   onRepairWithAI: () => void;
   isGeneratingAI: boolean;
+  onSaveJSON?: () => void;
+  onLoadJSON?: (file: File) => void;
 }
 
-export const StandbyDutyModal: React.FC<StandbyDutyModalProps> = ({ isOpen, onClose, schedule, report, onRepairWithAI, isGeneratingAI }) => {
+export const StandbyDutyModal: React.FC<StandbyDutyModalProps> = ({ isOpen, onClose, schedule, report, onRepairWithAI, isGeneratingAI, onSaveJSON, onLoadJSON }) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   if (!isOpen) return null;
 
   const handleExport = () => {
@@ -99,14 +105,55 @@ export const StandbyDutyModal: React.FC<StandbyDutyModalProps> = ({ isOpen, onCl
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 max-w-6xl w-full transform transition-all flex flex-col h-[90vh]" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-4 flex-shrink-0">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Rendelkezésre Állási Beosztás</h2>
-            <button 
-              onClick={handleExport}
-              disabled={isGeneratingAI}
-              className="p-2 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors rounded-full disabled:opacity-50"
-              aria-label="Beosztás exportálása"
-            >
-              <ExportIcon className="w-6 h-6" />
-            </button>
+            
+            <div className="flex items-center gap-2">
+              {onSaveJSON && (
+                <button
+                  onClick={onSaveJSON}
+                  disabled={isGeneratingAI}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
+                  title="Beosztás mentése adatformátumban (.json)"
+                >
+                  <DocumentArrowDownIcon className="w-4 h-4" />
+                  Mentés (.json)
+                </button>
+              )}
+
+              {onLoadJSON && (
+                <>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    className="sr-only"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) onLoadJSON(f);
+                      if (e.target) e.target.value = '';
+                    }}
+                    accept=".json"
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isGeneratingAI}
+                    className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
+                    title="Mentett beosztás betöltése fájlból (.json)"
+                  >
+                    <DocumentRefreshIcon className="w-4 h-4" />
+                    Betöltés (.json)
+                  </button>
+                </>
+              )}
+
+              <button 
+                onClick={handleExport}
+                disabled={isGeneratingAI}
+                className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
+                title="Excel exportálás"
+              >
+                <ExportIcon className="w-4 h-4" />
+                Excel
+              </button>
+            </div>
         </div>
         
         <div className="flex-grow overflow-auto relative">

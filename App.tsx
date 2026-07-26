@@ -111,7 +111,9 @@ const Main: React.FC = () => {
     standbyReport,
     isGeneratingWithAI,
     handleStartStandbyGeneration,
-    handleRepairStandbyWithAI
+    handleRepairStandbyWithAI,
+    handleSaveStandbyJSON,
+    handleLoadStandbyJSON
   } = useStandbyGenerator();
 
   useEffect(() => {
@@ -331,6 +333,8 @@ const Main: React.FC = () => {
         report={standbyReport}
         onRepairWithAI={handleRepairStandbyWithAI}
         isGeneratingAI={isGeneratingWithAI}
+        onSaveJSON={handleSaveStandbyJSON}
+        onLoadJSON={handleLoadStandbyJSON}
       />
 
       <AutoSchedulerModal

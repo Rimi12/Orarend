@@ -363,6 +363,65 @@ export const useStandbyGenerator = () => {
       }
   }, [currentState, standbySchedule, standbyReport, lastGeneratedTeacherIds, getEligibleTeachersAndSlots, findTeacher]);
 
+  const handleSaveStandbyJSON = useCallback(() => {
+    if (!standbySchedule) {
+      alert("Nincs menthető rendelkezesre állási beosztás!");
+      return;
+    }
+
+    const scheduleArray = Array.from(standbySchedule.entries()).map(([key, teachers]) => ({
+      key,
+      teachers: teachers.map(t => ({ id: t.id, name: t.name }))
+    }));
+
+    const data = {
+      type: "standby_schedule",
+      version: 1,
+      savedAt: new Date().toISOString(),
+      schedule: scheduleArray,
+      report: standbyReport
+    };
+
+    const jsonString = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonString], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `rendelkezesre_allas_beosztas_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [standbySchedule, standbyReport]);
+
+  const handleLoadStandbyJSON = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const json = JSON.parse(event.target?.result as string);
+        if (json.type === "standby_schedule" && Array.isArray(json.schedule)) {
+          const newMap = new Map<string, Teacher[]>();
+          json.schedule.forEach((item: { key: string; teachers: { id: string; name: string }[] }) => {
+            const resolvedTeachers = item.teachers
+              .map(t => findTeacher(t.id) || currentState?.teachers.find(t2 => t2.name === t.name))
+              .filter(Boolean) as Teacher[];
+            newMap.set(item.key, resolvedTeachers);
+          });
+
+          setStandbySchedule(newMap);
+          setStandbyReport(json.report || null);
+          setIsStandbyModalOpen(true);
+          alert("✅ Rendelkezésre állási beosztás sikeresen betöltve!");
+        } else {
+          alert("❌ Érvénytelen rendelkezesre állás fájl formátum!");
+        }
+      } catch (err) {
+        alert("❌ Hiba a fájl beolvasásakor!");
+      }
+    };
+    reader.readAsText(file);
+  }, [currentState, findTeacher]);
+
   return {
     isStandbySelectionModalOpen,
     setIsStandbySelectionModalOpen,
@@ -372,6 +431,8 @@ export const useStandbyGenerator = () => {
     standbyReport,
     isGeneratingWithAI,
     handleStartStandbyGeneration,
-    handleRepairStandbyWithAI
+    handleRepairStandbyWithAI,
+    handleSaveStandbyJSON,
+    handleLoadStandbyJSON
   };
 };

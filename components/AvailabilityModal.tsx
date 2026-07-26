@@ -1,6 +1,9 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { DAYS_OF_WEEK, PERIODS } from '../constants.ts';
 import type { Teacher } from '../types.ts';
+import { useTimetable } from '../contexts/TimetableContext.tsx';
+import { DocumentArrowDownIcon } from './icons/DocumentArrowDownIcon.tsx';
+import { DocumentRefreshIcon } from './icons/DocumentRefreshIcon.tsx';
 
 interface AvailabilityModalProps {
   isOpen: boolean;
@@ -11,15 +14,107 @@ interface AvailabilityModalProps {
 }
 
 export const AvailabilityModal: React.FC<AvailabilityModalProps> = ({ isOpen, teacher, onClose, onAvailabilityChange, onTravelingChange }) => {
+  const { sortedTeachers, bulkUpdateTeachersAvailability } = useTimetable();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   if (!isOpen || !teacher) return null;
+
+  const handleExportAvailability = () => {
+    const data = {
+      type: 'teacher_availability',
+      version: 1,
+      savedAt: new Date().toISOString(),
+      teachers: sortedTeachers.map(t => ({
+        id: t.id,
+        name: t.name,
+        isTraveling: t.isTraveling || false,
+        availability: t.availability
+      }))
+    };
+
+    const jsonString = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tanari_elerhetosegek_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportAvailability = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const json = JSON.parse(event.target?.result as string);
+        let listToUpdate: { id?: string; name?: string; availability?: boolean[][]; isTraveling?: boolean }[] = [];
+
+        if (json.type === 'teacher_availability' && Array.isArray(json.teachers)) {
+          listToUpdate = json.teachers;
+        } else if (Array.isArray(json.teachers)) {
+          listToUpdate = json.teachers;
+        } else if (Array.isArray(json)) {
+          listToUpdate = json;
+        }
+
+        if (listToUpdate.length > 0) {
+          bulkUpdateTeachersAvailability(listToUpdate);
+          alert(`✅ ${listToUpdate.length} pedagógus elérhetősége sikeresen betöltve!`);
+        } else {
+          alert('❌ Érvénytelen elérhetőség fájl formátum!');
+        }
+      } catch (err) {
+        alert('❌ Hiba a fájl beolvasásakor. Győződj meg róla, hogy érvényes JSON fájlt választottál!');
+      }
+    };
+    reader.readAsText(file);
+    if (e.target) e.target.value = '';
+  };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 max-w-4xl w-full transform transition-all">
-        <h2 className="text-2xl font-bold mb-2 text-gray-900 dark:text-white">
-          <span className="text-blue-600 dark:text-blue-400">{teacher.name}</span> elérhetősége
-        </h2>
-        <p className="text-gray-600 dark:text-gray-400 mb-6">Jelölje be azokat az időpontokat, amikor a tanár <span className="font-semibold text-red-500">NEM</span> elérhető.</p>
+        <div className="flex flex-wrap justify-between items-center mb-4 gap-3">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+              <span className="text-blue-600 dark:text-blue-400">{teacher.name}</span> elérhetősége
+            </h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Jelölje be azokat az időpontokat, amikor a tanár <span className="font-semibold text-red-500">NEM</span> elérhető.</p>
+          </div>
+
+          {/* Separate Export/Import buttons */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportAvailability}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
+              title="Összes pedagógus elérhetőségének és utazási beállításainak mentése fájlba"
+            >
+              <DocumentArrowDownIcon className="w-4 h-4" />
+              Mentés (.json)
+            </button>
+
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="sr-only"
+              onChange={handleImportAvailability}
+              accept=".json"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
+              title="Elérhetőségi beállítások betöltése mentett fájlból"
+            >
+              <DocumentRefreshIcon className="w-4 h-4" />
+              Betöltés (.json)
+            </button>
+          </div>
+        </div>
         
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-center">

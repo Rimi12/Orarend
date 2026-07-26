@@ -18,6 +18,7 @@ interface TimetableContextType {
   findTeacher: (id: string) => Teacher | undefined;
   setTeacherAvailability: (teacherId: string, day: number, period: number, isAvailable: boolean) => void;
   setTeacherTraveling: (teacherId: string, isTraveling: boolean) => void;
+  bulkUpdateTeachersAvailability: (availabilityList: { id?: string; name?: string; availability?: boolean[][]; isTraveling?: boolean }[]) => void;
   checkCollision: (allocation: Allocation, cell: TimetableCellData) => Collision;
   saveStateToStorage: () => void;
   loadStateFromStorage: () => void;
@@ -193,6 +194,22 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const newTeachers = currentState.teachers.map(teacher => {
             if (teacher.id === teacherId) {
                 return { ...teacher, isTraveling };
+            }
+            return teacher;
+        });
+        pushNewState({ ...currentState, teachers: newTeachers });
+    }, [currentState, pushNewState]);
+
+    const bulkUpdateTeachersAvailability = useCallback((availabilityList: { id?: string; name?: string; availability?: boolean[][]; isTraveling?: boolean }[]) => {
+        if (!currentState) return;
+        const newTeachers = currentState.teachers.map(teacher => {
+            const match = availabilityList.find(a => (a.id && a.id === teacher.id) || (a.name && a.name.trim().toLowerCase() === teacher.name.trim().toLowerCase()));
+            if (match) {
+                return {
+                    ...teacher,
+                    availability: match.availability ? match.availability.map(d => [...d]) : teacher.availability,
+                    isTraveling: match.isTraveling !== undefined ? match.isTraveling : teacher.isTraveling
+                };
             }
             return teacher;
         });
@@ -401,6 +418,7 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         findTeacher,
         setTeacherAvailability,
         setTeacherTraveling,
+        bulkUpdateTeachersAvailability,
         checkCollision,
         saveStateToStorage,
         loadStateFromStorage,
@@ -422,7 +440,7 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }), [
         dataLoaded, currentState, sortedTeachers, sortedClasses, loadParsedData, getUnplacedLessonsForTeacher,
         addLesson, removeLesson, setPlacedLessons, findClass, findSubject, findTeacher,
-        setTeacherAvailability, setTeacherTraveling, checkCollision, saveStateToStorage,
+        setTeacherAvailability, setTeacherTraveling, bulkUpdateTeachersAvailability, checkCollision, saveStateToStorage,
         loadStateFromStorage, loadState, clearAllData,
         prepareAllocationUpdate, applyAllocationUpdate, undo, redo, canUndo, canRedo,
         selectedTeacherId, selectedClassId, driveFileId,
