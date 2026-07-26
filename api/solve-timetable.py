@@ -1,6 +1,7 @@
 import json
 import sys
 import os
+import re
 from http.server import BaseHTTPRequestHandler
 
 try:
@@ -336,6 +337,50 @@ def solve_cp_sat(data):
                         bad_pair = model.NewBoolVar(f"pe_mult_{c_id}_{d}_{pos1}_{pos2}")
                         model.AddBoolAnd([new_pe_vars[pos1], new_pe_vars[pos2]]).OnlyEnforceIf(bad_pair)
                         penalties.append(bad_pair * 3000)
+
+    # Soft 4: Gördülő Rendszer (Rotating Shift System for 1-4 Grades & Óvoda)
+    # Humán (Magyar): Morning shift on Mon/Wed/Fri (H, Sz, P), Afternoon shift on Tue/Thu (K, Cs)
+    # Reál (Matematika/Egyéb): Morning shift on Tue/Thu (K, Cs), Afternoon shift on Mon/Wed/Fri (H, Sz, P)
+    human_keywords = ("magyar", "anyanyelv", "olvasás", "írás", "irodalom", "nyelvtan", "fogalmazás", "kommunikáció")
+
+    for i, unit in enumerate(lesson_units):
+        c_name = unit["class_name"].lower().strip()
+        s_name = unit["subject_name"].lower()
+
+        is_lower = False
+        if "óvoda" in c_name or "ovoda" in c_name:
+            is_lower = True
+        elif re.search(r'\b(1|2|3|4)(\.|\/|[a-z]|\s|$)', c_name):
+            if not re.search(r'\b(10|11|12|14|15|16|17|18|19|20|5|6|7|8|9)\b', c_name):
+                is_lower = True
+        elif ("hit-" in c_name or "etika" in c_name) and re.search(r'\b[1-4]\b', c_name):
+            is_lower = True
+
+        if not is_lower:
+            continue
+
+        if any(k in s_name for k in ("napközi", "tanulószoba", "szabadidő", "habilitáció", "rehabilitáció")):
+            continue
+
+        is_human = any(k in s_name for k in human_keywords)
+
+        for (d, p) in valid_slots[i]:
+            pen_gordulo = 0
+            # Mon (0), Wed (2), Fri (4) -> Humán Morning (p < 3), Reál Afternoon (p >= 2)
+            if d in (0, 2, 4):
+                if is_human and p >= 3:
+                    pen_gordulo = 3000
+                elif not is_human and p < 2:
+                    pen_gordulo = 2000
+            # Tue (1), Thu (3) -> Reál Morning (p < 3), Humán Afternoon (p >= 2)
+            elif d in (1, 3):
+                if not is_human and p >= 3:
+                    pen_gordulo = 3000
+                elif is_human and p < 2:
+                    pen_gordulo = 2000
+
+            if pen_gordulo > 0:
+                penalties.append(X[i, d, p] * pen_gordulo)
 
     # Minimize total penalties
     if penalties:
