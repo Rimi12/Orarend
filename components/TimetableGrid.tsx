@@ -7,6 +7,7 @@ import { DragType } from '../types.ts';
 import { PlacedLessonCard } from './LessonCard.tsx';
 import { ExportIcon } from './icons/ExportIcon.tsx';
 import { PrintIcon } from './icons/PrintIcon.tsx';
+import { TrashIcon } from './icons/TrashIcon.tsx';
 
 interface TimetableGridProps {
   title: string;
@@ -21,6 +22,7 @@ interface TimetableGridProps {
   draggedAllocation: Allocation | null;
   checkCollision: (allocation: Allocation, cell: TimetableCellData) => Collision;
   onExport: () => void;
+  onClearTimetable?: () => void;
 }
 
 export const TimetableGrid: React.FC<TimetableGridProps> = ({
@@ -123,6 +125,16 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{title}</h2>
         <div className="flex items-center gap-2 no-print">
+            {onClearTimetable && (
+              <button 
+                onClick={onClearTimetable}
+                className="p-2 text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 transition-colors rounded-full"
+                title={`${title} teljes órarendjének törlése / ürítése`}
+                aria-label={`${title} órarendjének törlése`}
+              >
+                <TrashIcon className="w-6 h-6" />
+              </button>
+            )}
             <button 
               onClick={onExport}
               className="p-2 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors rounded-full"

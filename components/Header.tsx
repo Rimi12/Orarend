@@ -11,6 +11,7 @@ import { DocumentArrowDownIcon } from './icons/DocumentArrowDownIcon.tsx';
 import { DocumentRefreshIcon } from './icons/DocumentRefreshIcon.tsx';
 import { ArrowPathIcon } from './icons/ArrowPathIcon.tsx';
 import { SparklesIcon } from './icons/SparklesIcon.tsx';
+import { TrashIcon } from './icons/TrashIcon.tsx';
 import type { Class, Teacher } from '../types.ts';
 
 interface HeaderProps {
@@ -37,6 +38,8 @@ interface HeaderProps {
   handleAllocationUpdateFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   handleReset: () => void;
   onStartAutoSchedule: () => void;
+  onClearClassTimetable?: () => void;
+  onClearTeacherTimetable?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -47,7 +50,7 @@ export const Header: React.FC<HeaderProps> = ({
   handleExportForKreta, setIsSettingsModalOpen,
   googleDrive, saveStatus, handleSaveToDrive, handleSaveToFile,
   updateFileRef, handleAllocationUpdateFileChange, handleReset,
-  onStartAutoSchedule
+  onStartAutoSchedule, onClearClassTimetable, onClearTeacherTimetable
 }) => {
   return (
     <header className="bg-white dark:bg-gray-800 shadow-md rounded-2xl p-4 mb-6 flex flex-wrap items-center justify-between gap-4 no-print">
@@ -77,15 +80,39 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="hidden sm:block border-l border-gray-300 dark:border-gray-600 h-8 mx-2"></div>
         <div>
           <label htmlFor="class-select" className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Osztály</label>
-          <select id="class-select" value={selectedClassId || ''} onChange={e => setSelectedClassId(e.target.value)} className="w-40 sm:w-48 bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500">
-            {sortedClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          <div className="flex items-center gap-1">
+            <select id="class-select" value={selectedClassId || ''} onChange={e => setSelectedClassId(e.target.value)} className="w-36 sm:w-44 bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500">
+              {sortedClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            {onClearClassTimetable && (
+              <button
+                onClick={onClearClassTimetable}
+                disabled={!selectedClassId}
+                className="p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Kiválasztott osztály teljes órarendjének törlése"
+              >
+                <TrashIcon className="w-5 h-5" />
+              </button>
+            )}
+          </div>
         </div>
         <div>
           <label htmlFor="teacher-select" className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Tanár</label>
-          <select id="teacher-select" value={selectedTeacherId || ''} onChange={e => setSelectedTeacherId(e.target.value)} className="w-56 sm:w-64 bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500">
-            {teacherHourCounts.map(t => <option key={t.id} value={t.id}>{t.display}</option>)}
-          </select>
+          <div className="flex items-center gap-1">
+            <select id="teacher-select" value={selectedTeacherId || ''} onChange={e => setSelectedTeacherId(e.target.value)} className="w-52 sm:w-60 bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500">
+              {teacherHourCounts.map(t => <option key={t.id} value={t.id}>{t.display}</option>)}
+            </select>
+            {onClearTeacherTimetable && (
+              <button
+                onClick={onClearTeacherTimetable}
+                disabled={!selectedTeacherId}
+                className="p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Kiválasztott pedagógus teljes órarendjének törlése"
+              >
+                <TrashIcon className="w-5 h-5" />
+              </button>
+            )}
+          </div>
         </div>
         <button
           onClick={() => setIsAvailabilityModalOpen(true)}

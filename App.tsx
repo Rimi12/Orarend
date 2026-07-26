@@ -34,6 +34,7 @@ const Main: React.FC = () => {
   const { 
     dataLoaded, currentState, loadParsedData, getUnplacedLessonsForTeacher, 
     addLesson, removeLesson, findClass, findSubject, findTeacher, setTeacherAvailability, checkCollision,
+    clearClassTimetable, clearTeacherTimetable,
     saveStateToStorage, loadStateFromStorage,
     undo, redo, canUndo, canRedo,
     selectedTeacherId, selectedClassId, driveFileId,
@@ -187,6 +188,22 @@ const Main: React.FC = () => {
   
   const teacherTimetableLessons = placedLessons.filter(l => l.allocation.teacherId === selectedTeacherId);
   const classTimetableLessons = placedLessons.filter(l => l.allocation.classId === selectedClassId);
+
+  const handleClearClassTimetable = useCallback(() => {
+    if (selectedClass) {
+      if (window.confirm(`Biztosan törölni szeretnéd a(z) "${selectedClass.name}" osztály teljes órarendjét?\n\nMinden beosztott óra visszakerül a beosztatlan órák közé.`)) {
+        clearClassTimetable(selectedClass.id);
+      }
+    }
+  }, [selectedClass, clearClassTimetable]);
+
+  const handleClearTeacherTimetable = useCallback(() => {
+    if (selectedTeacher) {
+      if (window.confirm(`Biztosan törölni szeretnéd ${selectedTeacher.name} teljes órarendjét?\n\nMinden beosztott órája visszakerül a beosztatlan órák közé.`)) {
+        clearTeacherTimetable(selectedTeacher.id);
+      }
+    }
+  }, [selectedTeacher, clearTeacherTimetable]);
   
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 p-4 lg:p-8" onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragOver={handleGlobalDragOver}>
@@ -214,6 +231,8 @@ const Main: React.FC = () => {
         handleAllocationUpdateFileChange={handleAllocationUpdateFileChange}
         handleReset={handleReset}
         onStartAutoSchedule={() => setIsAutoSchedulerOpen(true)}
+        onClearClassTimetable={handleClearClassTimetable}
+        onClearTeacherTimetable={handleClearTeacherTimetable}
       />
 
       {googleDrive.authError && (
@@ -241,6 +260,7 @@ const Main: React.FC = () => {
               draggedAllocation={draggedAllocation}
               checkCollision={checkCollision}
               onExport={() => handleExport('class')}
+              onClearTimetable={handleClearClassTimetable}
             />
           )}
         </div>
@@ -270,6 +290,7 @@ const Main: React.FC = () => {
                 draggedAllocation={draggedAllocation}
                 checkCollision={checkCollision}
                 onExport={() => handleExport('teacher')}
+                onClearTimetable={handleClearTeacherTimetable}
               />
             )}
           </div>

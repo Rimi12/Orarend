@@ -16,6 +16,8 @@ interface TimetableContextType {
   findClass: (id: string) => Class | undefined;
   findSubject: (id: string) => Subject | undefined;
   findTeacher: (id: string) => Teacher | undefined;
+  clearClassTimetable: (classId: string) => void;
+  clearTeacherTimetable: (teacherId: string) => void;
   setTeacherAvailability: (teacherId: string, day: number, period: number, isAvailable: boolean) => void;
   setTeacherTraveling: (teacherId: string, isTraveling: boolean) => void;
   bulkUpdateTeachersAvailability: (availabilityList: { id?: string; name?: string; availability?: boolean[][]; isTraveling?: boolean }[]) => void;
@@ -168,6 +170,18 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const setPlacedLessons = useCallback((placedLessons: PlacedLesson[]) => {
         if (!currentState) return;
         pushNewState({ ...currentState, placedLessons });
+    }, [currentState, pushNewState]);
+
+    const clearClassTimetable = useCallback((classId: string) => {
+        if (!currentState) return;
+        const newPlaced = currentState.placedLessons.filter(l => l.allocation.classId !== classId);
+        pushNewState({ ...currentState, placedLessons: newPlaced });
+    }, [currentState, pushNewState]);
+
+    const clearTeacherTimetable = useCallback((teacherId: string) => {
+        if (!currentState) return;
+        const newPlaced = currentState.placedLessons.filter(l => l.allocation.teacherId !== teacherId);
+        pushNewState({ ...currentState, placedLessons: newPlaced });
     }, [currentState, pushNewState]);
 
     const setTeacherAvailability = useCallback((teacherId: string, day: number, period: number, isAvailable: boolean) => {
@@ -416,6 +430,8 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         findClass,
         findSubject,
         findTeacher,
+        clearClassTimetable,
+        clearTeacherTimetable,
         setTeacherAvailability,
         setTeacherTraveling,
         bulkUpdateTeachersAvailability,
@@ -440,7 +456,8 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }), [
         dataLoaded, currentState, sortedTeachers, sortedClasses, loadParsedData, getUnplacedLessonsForTeacher,
         addLesson, removeLesson, setPlacedLessons, findClass, findSubject, findTeacher,
-        setTeacherAvailability, setTeacherTraveling, bulkUpdateTeachersAvailability, checkCollision, saveStateToStorage,
+        clearClassTimetable, clearTeacherTimetable, setTeacherAvailability, setTeacherTraveling,
+        bulkUpdateTeachersAvailability, checkCollision, saveStateToStorage,
         loadStateFromStorage, loadState, clearAllData,
         prepareAllocationUpdate, applyAllocationUpdate, undo, redo, canUndo, canRedo,
         selectedTeacherId, selectedClassId, driveFileId,
