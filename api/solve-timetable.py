@@ -11,6 +11,15 @@ except ImportError:
 
 
 
+def normalize_group(g):
+    if not g:
+        return ""
+    g_str = str(g).strip().lower()
+    if g_str in ("none", "null", "0", "közös", "egész", "egész osztály"):
+        return ""
+    return g_str
+
+
 def solve_cp_sat(data):
     if not HAS_OR_TOOLS:
         return {"status": "ERROR", "message": "ortools library is not installed"}
@@ -44,7 +53,7 @@ def solve_cp_sat(data):
             s_id = alloc["subjectId"]
             c_name = class_dict.get(c_id, {}).get("name", "")
             s_name = subject_dict.get(s_id, {}).get("name", "")
-            group_name = alloc.get("originalGroup", "") or ""
+            group_name = normalize_group(alloc.get("originalGroup"))
 
             lesson_units.append({
                 "alloc_id": alloc["id"],
@@ -67,6 +76,8 @@ def solve_cp_sat(data):
     class_day_napkozi_periods = {}     # (class_id, d) -> list of periods
     class_day_pe_counts = {}           # (class_id, d) -> count
 
+    secondary_keywords = ("felelősségvállalás", "fenntarthatóság", "gazdasági", "médiatudatosság", "nemzeti öntudat", "pályaorientáció", "testi, lelki egészség", "habilitáció", "rehabilitáció", "napközi", "tanulószoba", "szabadidő")
+
     new_alloc_ids = {a["id"] for a in active_allocations}
     for p_les in preserved_lessons:
         alloc_id = p_les.get("allocationId")
@@ -79,14 +90,15 @@ def solve_cp_sat(data):
             t_id = alloc["teacherId"]
             c_id = alloc["classId"]
             s_id = alloc["subjectId"]
-            g_name = (alloc.get("originalGroup") or "").strip().lower()
+            g_name = normalize_group(alloc.get("originalGroup"))
             s_name = subject_dict.get(s_id, {}).get("name", "").lower()
+            is_sec = any(k in s_name for k in secondary_keywords)
 
             teacher_busy_slots.add((t_id, d, p))
 
-            if not g_name or "közös" in g_name or "egész" in g_name or g_name == "0":
+            if not g_name and not is_sec:
                 class_whole_busy_slots.add((c_id, d, p))
-            else:
+            elif g_name:
                 class_group_busy_slots.add((c_id, g_name, d, p))
 
             if "napközi" in s_name or "tanulószoba" in s_name or "szabadidő" in s_name:
@@ -125,10 +137,10 @@ def solve_cp_sat(data):
     for i, unit in enumerate(lesson_units):
         t_id = unit["teacher_id"]
         c_id = unit["class_id"]
-        g_name = unit["group_name"].strip().lower()
+        g_name = unit["group_name"]
         s_name = unit["subject_name"].lower()
         is_hab = "habilitáció" in s_name or "rehabilitáció" in s_name
-        is_whole = not g_name or "közös" in g_name or "egész" in g_name or g_name == "0"
+        is_whole = not g_name
 
         t = teacher_dict.get(t_id)
         avail = t.get("availability", []) if t else []
@@ -158,6 +170,10 @@ def solve_cp_sat(data):
                             continue
 
                 slots.append((d, p))
+        if not slots:
+            slots = [(d, p) for d in range(DAYS) for p in range(PERIODS) if (t_id, d, p) not in teacher_busy_slots and (c_id, d, p) not in class_whole_busy_slots]
+        if not slots:
+            slots = [(d, p) for d in range(DAYS) for p in range(PERIODS) if (t_id, d, p) not in teacher_busy_slots]
         valid_slots[i] = slots if slots else [(d, p) for d in range(DAYS) for p in range(PERIODS)]
 
     # Decision variables X[i, d, p] -> Bool
@@ -206,20 +222,26 @@ def solve_cp_sat(data):
         for idx_a_pos, idx_a in enumerate(indices):
             s_a = lesson_units[idx_a]["subject_name"].lower()
             t_a = lesson_units[idx_a]["teacher_id"]
-            g_a = lesson_units[idx_a]["group_name"].strip().lower()
+            g_a = lesson_units[idx_a]["group_name"]
             is_hab_a = "habilitáció" in s_a or "rehabilitáció" in s_a
             is_nap_a = "napközi" in s_a or "tanulószoba" in s_a or "szabadidő" in s_a
             is_tesi_a = "testnevelés" in s_a or "tesi" in s_a
-            is_whole_a = not g_a or "közös" in g_a or "egész" in g_a or g_a == "0"
+            is_whole_a = not g_a
 
             for idx_b in indices[idx_a_pos + 1:]:
                 s_b = lesson_units[idx_b]["subject_name"].lower()
                 t_b = lesson_units[idx_b]["teacher_id"]
-                g_b = lesson_units[idx_b]["group_name"].strip().lower()
+                g_b = lesson_units[idx_b]["group_name"]
                 is_hab_b = "habilitáció" in s_b or "rehabilitáció" in s_b
                 is_nap_b = "napközi" in s_b or "tanulószoba" in s_b or "szabadidő" in s_b
                 is_tesi_b = "testnevelés" in s_b or "tesi" in s_b
-                is_whole_b = not g_b or "közös" in g_b or "egész" in g_b or g_b == "0"
+                is_whole_b = not g_b
+
+                secondary_keywords = ("felelősségvállalás", "fenntarthatóság", "gazdasági", "médiatudatosság", "nemzeti öntudat", "pályaorientáció", "testi, lelki egészség", "habilitáció", "rehabilitáció", "napközi", "tanulószoba", "szabadidő")
+                is_sec_a = any(k in s_a for k in secondary_keywords)
+                is_sec_b = any(k in s_b for k in secondary_keywords)
+                is_core_a = not is_sec_a and not is_hab_a and not is_nap_a
+                is_core_b = not is_sec_b and not is_hab_b and not is_nap_b
 
                 # Exception 1: Habilitacio + Napkozi by DIFFERENT teachers
                 allow_nap_hab = (is_hab_a and is_nap_b and t_a != t_b) or (is_hab_b and is_nap_a and t_a != t_b)
@@ -227,8 +249,10 @@ def solve_cp_sat(data):
                 allow_tesi_hab = is_9_10 and ((is_hab_a and is_tesi_b and t_a != t_b) or (is_hab_b and is_tesi_a and t_a != t_b))
                 # Exception 3: Napkozi + Napkozi by DIFFERENT teachers
                 allow_nap_nap = is_nap_a and is_nap_b and t_a != t_b
+                # Exception 4: Secondary/Co-teaching module parallel run by DIFFERENT teachers
+                allow_coteach = (t_a != t_b) and (is_sec_a and is_sec_b) and not (is_core_a or is_core_b)
 
-                if allow_nap_hab or allow_tesi_hab or allow_nap_nap:
+                if allow_nap_hab or allow_tesi_hab or allow_nap_nap or allow_coteach:
                     continue  # These are explicitly allowed to be parallel!
 
                 # If both are whole class OR both belong to same subgroup -> conflict!
@@ -317,10 +341,10 @@ def solve_cp_sat(data):
     if penalties:
         model.Minimize(sum(penalties))
 
-    # Solve model without Python GIL callbacks for max C++ speed
+    # Solve model with 5s time limit
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 2.0
-    solver.parameters.num_search_workers = 2
+    solver.parameters.max_time_in_seconds = 5.0
+    solver.parameters.num_search_workers = 4
     solver.parameters.log_search_progress = False
 
     status = solver.Solve(model)
@@ -329,6 +353,7 @@ def solve_cp_sat(data):
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         try:
             temp_placed = list(preserved_lessons)
+            all_placed = True
             for i, unit in enumerate(lesson_units):
                 placed = False
                 for (d, p) in valid_slots[i]:
@@ -341,44 +366,70 @@ def solve_cp_sat(data):
                         placed = True
                         break
                 if not placed:
+                    all_placed = False
                     break
-            if len(temp_placed) == len(preserved_lessons) + num_lessons:
+            if all_placed:
                 placed_result = temp_placed
         except Exception:
             placed_result = None
 
-    # Fallback placer if status is UNKNOWN / INFEASIBLE or incomplete
+    # Fallback placer if CP-SAT solver didn't assign all variables cleanly
     if placed_result is None:
         temp_placed = list(preserved_lessons)
         used_t_slots = set(teacher_busy_slots)
         used_c_slots = set(class_whole_busy_slots)
 
         for p_les in preserved_lessons:
-            alloc_id = p_les.get("allocationId")
             d = p_les.get("day")
             p = p_les.get("period")
-            if alloc_id in all_alloc_dict and d is not None and p is not None:
-                alloc = all_alloc_dict[alloc_id]
-                used_t_slots.add((alloc["teacherId"], d, p))
-                used_c_slots.add((alloc["classId"], d, p))
+            if d is not None and p is not None:
+                alloc_id = p_les.get("allocationId")
+                if alloc_id in all_alloc_dict:
+                    alloc = all_alloc_dict[alloc_id]
+                    used_t_slots.add((alloc["teacherId"], d, p))
+                    g_name = normalize_group(alloc.get("originalGroup"))
+                    if not g_name:
+                        used_c_slots.add((alloc["classId"], d, p))
 
         for i, unit in enumerate(lesson_units):
             t_id = unit["teacher_id"]
             c_id = unit["class_id"]
+            g_name = unit["group_name"]
+            is_whole = not g_name
             assigned_slot = None
 
-            # Check if solver assigned variable
+            # Try to get CP-SAT assigned variable first
             try:
                 for (d, p) in valid_slots[i]:
                     if solver.Value(X[i, d, p]) == 1:
-                        assigned_slot = (d, p)
-                        break
+                        if (t_id, d, p) not in used_t_slots and (not is_whole or (c_id, d, p) not in used_c_slots):
+                            assigned_slot = (d, p)
+                            break
             except Exception:
                 pass
 
+            # Search valid slots for un-busy slot
             if assigned_slot is None:
                 for (d, p) in valid_slots[i]:
-                    if (t_id, d, p) not in used_t_slots and (c_id, d, p) not in used_c_slots:
+                    if (t_id, d, p) not in used_t_slots and (not is_whole or (c_id, d, p) not in used_c_slots):
+                        assigned_slot = (d, p)
+                        break
+
+            # Search all (day, period) slots if valid_slots were exhausted
+            if assigned_slot is None:
+                for d in range(DAYS):
+                    for p in range(PERIODS):
+                        if (t_id, d, p) not in used_t_slots and (not is_whole or (c_id, d, p) not in used_c_slots):
+                            assigned_slot = (d, p)
+                            break
+                    if assigned_slot:
+                        break
+
+            # If still None (class schedule overcapacity due to secondary modules), prefer secondary module slots over core subject slots!
+            if assigned_slot is None and valid_slots[i]:
+                # Find a slot where class has no core academic subject
+                for (d, p) in valid_slots[i]:
+                    if (t_id, d, p) not in used_t_slots and (c_id, d, p) not in class_whole_busy_slots:
                         assigned_slot = (d, p)
                         break
 
@@ -392,14 +443,13 @@ def solve_cp_sat(data):
                     "period": assigned_slot[1]
                 })
                 used_t_slots.add((t_id, assigned_slot[0], assigned_slot[1]))
-                used_c_slots.add((c_id, assigned_slot[0], assigned_slot[1]))
+                if is_whole and not is_sec:
+                    used_c_slots.add((c_id, assigned_slot[0], assigned_slot[1]))
 
         placed_result = temp_placed
 
-    return {
-        "status": "OPTIMAL" if status == cp_model.OPTIMAL else "FEASIBLE",
-        "placedLessons": placed_result
-    }
+    status_str = "OPTIMAL" if status == cp_model.OPTIMAL else ("FEASIBLE" if status == cp_model.FEASIBLE else "FEASIBLE_FALLBACK")
+    return {"status": status_str, "placedLessons": placed_result}
 
 
 # Handler for Vercel Serverless Function
