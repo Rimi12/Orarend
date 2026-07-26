@@ -37,7 +37,8 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
   isLocked,
   draggedAllocation,
   checkCollision,
-  onExport
+  onExport,
+  onClearTimetable
 }) => {
   const [dragOverCell, setDragOverCell] = React.useState<TimetableCellData | null>(null);
   const gridRef = React.useRef<HTMLDivElement>(null);
