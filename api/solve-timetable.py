@@ -257,26 +257,22 @@ def solve_cp_sat(data):
 
         for (d, p) in valid_slots[i]:
             pen_val = 0
-            if is_7_8:
-                if is_napközi or is_habilitáció:
-                    if p < 6: pen_val = 5000
-                else:
-                    if p >= 6: pen_val = 5000
-            elif is_4:
-                if is_napközi or is_habilitáció:
-                    if p < 5: pen_val = 5000
-                else:
-                    if p >= 5: pen_val = 5000
+            if is_napközi:
+                if p < 5: pen_val = 10000
+            elif is_habilitáció:
+                if p < 4: pen_val = 2000
             else:
-                if is_napközi or is_habilitáció:
-                    if p < 4: pen_val = 5000
-                else:
-                    if p >= 7: pen_val = 5000
+                if is_7_8 and p >= 6:
+                    pen_val = 5000
+                elif is_4 and p >= 5:
+                    pen_val = 5000
+                elif p >= 6:
+                    pen_val = 5000
 
             if pen_val > 0:
                 penalties.append(X[i, d, p] * pen_val)
 
-    # Soft 2: Academic Lesson After Napközi on Same Day (using direct slot penalties)
+    # Soft 2: Academic Lesson After Napközi on Same Day
     for c_id, indices in class_to_lessons.items():
         academic_indices = [idx for idx in indices if "napközi" not in lesson_units[idx]["subject_name"].lower() and "tanulószoba" not in lesson_units[idx]["subject_name"].lower() and "habilitáció" not in lesson_units[idx]["subject_name"].lower()]
 
@@ -287,23 +283,20 @@ def solve_cp_sat(data):
                 for (d_acad, p_acad) in valid_slots[idx_acad]:
                     if d_acad != d:
                         continue
-                    # Check against preserved Napközi
                     for p_nap in preserved_nap_periods:
                         if p_acad >= p_nap:
                             penalties.append(X[idx_acad, d_acad, p_acad] * 10000)
 
-    # Soft 3: Mindennapos Testnevelés
+    # Soft 3: Swimming & Mindennapos Testnevelés (3. & 5. Grade Wednesday & Friday P1-P2)
     for c_id, indices in class_to_lessons.items():
         c_name = class_dict.get(c_id, {}).get("name", "").lower()
-        pe_indices = [idx for idx in indices if "testnevelés" in lesson_units[idx]["subject_name"].lower() or "tesi" in lesson_units[idx]["subject_name"].lower()]
+        pe_indices = [idx for idx in indices if "testnevelés" in lesson_units[idx]["subject_name"].lower() or "tesi" in lesson_units[idx]["subject_name"].lower() or "úszás" in lesson_units[idx]["subject_name"].lower()]
 
         is_grade_3 = "3." in c_name or "3/a" in c_name or "3/b" in c_name or c_name.startswith("3 ") or c_name == "3"
         is_grade_5 = "5." in c_name or "5/a" in c_name or "5/b" in c_name or c_name.startswith("5 ") or c_name == "5"
 
         for d in range(DAYS):
-            is_swimming_day = (is_grade_3 and d == 2) or (is_grade_5 and d == 4)
-            target_pe = 2 if is_swimming_day else 1
-            prev_pe = class_day_pe_counts.get((c_id, d), 0)
+            is_swimming_day = (is_grade_3 or is_grade_5) and (d in (2, 4)) # Wednesday & Friday
 
             new_pe_vars = [X[idx, d_x, p] for idx in pe_indices for (d_x, p) in valid_slots[idx] if d_x == d]
 
@@ -311,7 +304,7 @@ def solve_cp_sat(data):
                 for idx in pe_indices:
                     for (d_x, p) in valid_slots[idx]:
                         if d_x == d and p not in (0, 1):
-                            penalties.append(X[idx, d_x, p] * 5000)
+                            penalties.append(X[idx, d_x, p] * 10000)
 
             if len(new_pe_vars) > 1 and not is_swimming_day:
                 for pos1 in range(len(new_pe_vars)):
