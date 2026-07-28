@@ -18,6 +18,7 @@ import { UpdateAllocationModal } from './components/UpdateAllocationModal.tsx';
 import { ParallelLessonModal } from './components/ParallelLessonModal.tsx';
 import { StandbyDutyModal } from './components/StandbyDutyModal.tsx';
 import { StandbySelectionModal } from './components/StandbySelectionModal.tsx';
+import { GymScheduleModal } from './components/GymScheduleModal.tsx';
 import { Header } from './components/Header.tsx';
 import { useAutoScheduler } from './hooks/useAutoScheduler.ts';
 import { AutoSchedulerModal } from './components/AutoSchedulerModal.tsx';
@@ -45,6 +46,7 @@ const Main: React.FC = () => {
   
   const [isAvailabilityModalOpen, setIsAvailabilityModalOpen] = useState(false);
   const [isAutoSchedulerOpen, setIsAutoSchedulerOpen] = useState(false);
+  const [isGymModalOpen, setIsGymModalOpen] = useState(false);
   
   const [googleApiKey, setGoogleApiKey] = useState<string | null>(null);
   const [googleClientId, setGoogleClientId] = useState<string | null>(null);
@@ -220,6 +222,7 @@ const Main: React.FC = () => {
         selectedTeacher={selectedTeacher}
         setIsAvailabilityModalOpen={setIsAvailabilityModalOpen}
         setIsStandbySelectionModalOpen={setIsStandbySelectionModalOpen}
+        setIsGymModalOpen={setIsGymModalOpen}
         handleExportForKreta={handleExportForKreta}
         setIsSettingsModalOpen={setIsSettingsModalOpen}
         googleDrive={googleDrive}
@@ -370,6 +373,15 @@ const Main: React.FC = () => {
         onGenerate={autoScheduler.generateTimetable}
         onProceed={autoScheduler.proceedToNextPhase}
         onCancel={autoScheduler.cancelGeneration}
+      />
+
+      <GymScheduleModal
+        isOpen={isGymModalOpen}
+        onClose={() => setIsGymModalOpen(false)}
+        currentState={currentState}
+        findClass={findClass}
+        findTeacher={findTeacher}
+        findSubject={findSubject}
       />
 
     </div>

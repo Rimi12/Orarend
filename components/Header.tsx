@@ -28,6 +28,7 @@ interface HeaderProps {
   selectedTeacher: Teacher | undefined;
   setIsAvailabilityModalOpen: (isOpen: boolean) => void;
   setIsStandbySelectionModalOpen: (isOpen: boolean) => void;
+  setIsGymModalOpen: (isOpen: boolean) => void;
   handleExportForKreta: () => void;
   setIsSettingsModalOpen: (isOpen: boolean) => void;
   googleDrive: any;
@@ -46,7 +47,7 @@ export const Header: React.FC<HeaderProps> = ({
   canUndo, canRedo, undo, redo,
   selectedClassId, setSelectedClassId, sortedClasses,
   selectedTeacherId, setSelectedTeacherId, teacherHourCounts, selectedTeacher,
-  setIsAvailabilityModalOpen, setIsStandbySelectionModalOpen,
+  setIsAvailabilityModalOpen, setIsStandbySelectionModalOpen, setIsGymModalOpen,
   handleExportForKreta, setIsSettingsModalOpen,
   googleDrive, saveStatus, handleSaveToDrive, handleSaveToFile,
   updateFileRef, handleAllocationUpdateFileChange, handleReset,
@@ -136,6 +137,14 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <UsersIcon className="w-5 h-5" />
             <span className="hidden lg:inline">Rendelkezésre Állás</span>
+          </button>
+          <button
+            onClick={() => setIsGymModalOpen(true)}
+            className="px-4 py-2.5 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors flex items-center gap-2"
+            title="Tornatermi (Kis és Nagy tornaterem) órarend beosztás"
+          >
+            <span className="text-lg">🏀</span>
+            <span className="hidden lg:inline">Tornatermek</span>
           </button>
           <button
             onClick={handleExportForKreta}

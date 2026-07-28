@@ -382,6 +382,39 @@ def solve_cp_sat(data):
             if pen_gordulo > 0:
                 penalties.append(X[i, d, p] * pen_gordulo)
 
+    # Soft 5: Gym Capacity Constraints (Kis tornaterem: 1-3. grades, Nagy tornaterem: 4-12. grades)
+    kis_gym_lessons = []
+    nagy_gym_lessons = []
+
+    for i, unit in enumerate(lesson_units):
+        s_name = unit["subject_name"].lower()
+        if "testnevelés" in s_name or "tesi" in s_name or "úszás" in s_name or "gyógytestnevelés" in s_name:
+            c_name = unit["class_name"].lower().strip()
+            if re.search(r'\b(1|2|3)(\.|\/|[a-z]|\s|$)', c_name) and not re.search(r'\b(10|11|12|13|14|15|16|17|18|19|20)\b', c_name):
+                kis_gym_lessons.append(i)
+            else:
+                nagy_gym_lessons.append(i)
+
+    for d in range(DAYS):
+        for p in range(PERIODS):
+            # Kis gym collision penalty
+            kis_vars = [X[idx, d, p] for idx in kis_gym_lessons if (d, p) in valid_slots[idx]]
+            if len(kis_vars) > 1:
+                for pos1 in range(len(kis_vars)):
+                    for pos2 in range(pos1 + 1, len(kis_vars)):
+                        gym_clash = model.NewBoolVar(f"kis_gym_clash_{d}_{p}_{pos1}_{pos2}")
+                        model.AddBoolAnd([kis_vars[pos1], kis_vars[pos2]]).OnlyEnforceIf(gym_clash)
+                        penalties.append(gym_clash * 10000)
+
+            # Nagy gym collision penalty
+            nagy_vars = [X[idx, d, p] for idx in nagy_gym_lessons if (d, p) in valid_slots[idx]]
+            if len(nagy_vars) > 1:
+                for pos1 in range(len(nagy_vars)):
+                    for pos2 in range(pos1 + 1, len(nagy_vars)):
+                        gym_clash = model.NewBoolVar(f"nagy_gym_clash_{d}_{p}_{pos1}_{pos2}")
+                        model.AddBoolAnd([nagy_vars[pos1], nagy_vars[pos2]]).OnlyEnforceIf(gym_clash)
+                        penalties.append(gym_clash * 10000)
+
     # Minimize total penalties
     if penalties:
         model.Minimize(sum(penalties))
