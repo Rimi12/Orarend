@@ -100,3 +100,21 @@ export interface ParallelLessonConfirmation {
   collision: Collision;
   existingLessons: PlacedLesson[];
 }
+
+// ---- Asszisztens Beosztás ----
+
+/** One assigned slot: assistant X is at location Y during timeslot Z on day D */
+export interface AssistantSlot {
+  id: string;
+  assistantId: string;  // references Teacher.id
+  day: number;          // 0=Mon … 4=Fri
+  timeSlotIndex: number; // index into ASSISTANT_TIME_SLOTS array
+  locationIndex: number; // index into locations array
+}
+
+/** Full assistant schedule state, stored in localStorage */
+export interface AssistantSchedule {
+  slots: AssistantSlot[];
+  selectedAssistantIds: string[];
+  locations: string[]; // editable location list
+}

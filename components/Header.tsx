@@ -29,6 +29,7 @@ interface HeaderProps {
   setIsAvailabilityModalOpen: (isOpen: boolean) => void;
   setIsStandbySelectionModalOpen: (isOpen: boolean) => void;
   setIsGymModalOpen: (isOpen: boolean) => void;
+  setIsAssistantModalOpen: (isOpen: boolean) => void;
   handleExportForKreta: () => void;
   setIsSettingsModalOpen: (isOpen: boolean) => void;
   googleDrive: any;
@@ -47,7 +48,7 @@ export const Header: React.FC<HeaderProps> = ({
   canUndo, canRedo, undo, redo,
   selectedClassId, setSelectedClassId, sortedClasses,
   selectedTeacherId, setSelectedTeacherId, teacherHourCounts, selectedTeacher,
-  setIsAvailabilityModalOpen, setIsStandbySelectionModalOpen, setIsGymModalOpen,
+  setIsAvailabilityModalOpen, setIsStandbySelectionModalOpen, setIsGymModalOpen, setIsAssistantModalOpen,
   handleExportForKreta, setIsSettingsModalOpen,
   googleDrive, saveStatus, handleSaveToDrive, handleSaveToFile,
   updateFileRef, handleAllocationUpdateFileChange, handleReset,
@@ -145,6 +146,14 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <span className="text-lg">🏀</span>
             <span className="hidden lg:inline">Tornatermek</span>
+          </button>
+          <button
+            onClick={() => setIsAssistantModalOpen(true)}
+            className="px-4 py-2.5 bg-teal-600 text-white font-semibold rounded-lg hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 transition-colors flex items-center gap-2"
+            title="Asszisztens beosztás szerkesztése"
+          >
+            <span className="text-lg">👤</span>
+            <span className="hidden lg:inline">Asszisztens</span>
           </button>
           <button
             onClick={handleExportForKreta}

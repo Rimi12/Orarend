@@ -19,6 +19,8 @@ import { ParallelLessonModal } from './components/ParallelLessonModal.tsx';
 import { StandbyDutyModal } from './components/StandbyDutyModal.tsx';
 import { StandbySelectionModal } from './components/StandbySelectionModal.tsx';
 import { GymScheduleModal } from './components/GymScheduleModal.tsx';
+import { AssistantSelectionModal } from './components/AssistantSelectionModal.tsx';
+import { AssistantScheduleModal } from './components/AssistantScheduleModal.tsx';
 import { Header } from './components/Header.tsx';
 import { useAutoScheduler } from './hooks/useAutoScheduler.ts';
 import { AutoSchedulerModal } from './components/AutoSchedulerModal.tsx';
@@ -47,10 +49,20 @@ const Main: React.FC = () => {
   const [isAvailabilityModalOpen, setIsAvailabilityModalOpen] = useState(false);
   const [isAutoSchedulerOpen, setIsAutoSchedulerOpen] = useState(false);
   const [isGymModalOpen, setIsGymModalOpen] = useState(false);
+  const [isAssistantSelectionOpen, setIsAssistantSelectionOpen] = useState(false);
+  const [isAssistantScheduleOpen, setIsAssistantScheduleOpen] = useState(false);
+  const [selectedAssistants, setSelectedAssistants] = useState<import('./types.ts').Teacher[]>([]);
   
   const [googleApiKey, setGoogleApiKey] = useState<string | null>(null);
   const [googleClientId, setGoogleClientId] = useState<string | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+  // Potential assistants: teachers with NO allocations at all
+  const potentialAssistants = useMemo(() => {
+    if (!currentState) return [];
+    const teachersWithAllocs = new Set(currentState.allocations.map(a => a.teacherId));
+    return sortedTeachers.filter(t => !teachersWithAllocs.has(t.id));
+  }, [currentState, sortedTeachers]);
 
   const autoScheduler = useAutoScheduler();
 
@@ -223,6 +235,7 @@ const Main: React.FC = () => {
         setIsAvailabilityModalOpen={setIsAvailabilityModalOpen}
         setIsStandbySelectionModalOpen={setIsStandbySelectionModalOpen}
         setIsGymModalOpen={setIsGymModalOpen}
+        setIsAssistantModalOpen={() => setIsAssistantSelectionOpen(true)}
         handleExportForKreta={handleExportForKreta}
         setIsSettingsModalOpen={setIsSettingsModalOpen}
         googleDrive={googleDrive}
@@ -382,6 +395,25 @@ const Main: React.FC = () => {
         findClass={findClass}
         findTeacher={findTeacher}
         findSubject={findSubject}
+      />
+
+      <AssistantSelectionModal
+        isOpen={isAssistantSelectionOpen}
+        onClose={() => setIsAssistantSelectionOpen(false)}
+        potentialAssistants={potentialAssistants}
+        allTeachers={sortedTeachers}
+        onOpen={(assistants) => {
+          setSelectedAssistants(assistants);
+          setIsAssistantSelectionOpen(false);
+          setIsAssistantScheduleOpen(true);
+        }}
+      />
+
+      <AssistantScheduleModal
+        isOpen={isAssistantScheduleOpen}
+        onClose={() => setIsAssistantScheduleOpen(false)}
+        selectedAssistants={selectedAssistants}
+        allTeachers={sortedTeachers}
       />
 
     </div>
