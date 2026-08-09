@@ -325,6 +325,17 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
     // Remove interactive/no-print elements inside clone
     printContents.querySelectorAll('.no-print').forEach(el => el.remove());
 
+    // Reset min-width inline styles so tables scale to 100% A4 width
+    printContents.style.minWidth = '0';
+    printContents.style.maxWidth = '100%';
+    printContents.querySelectorAll('table, th, td, div').forEach(el => {
+      const htmlEl = el as HTMLElement;
+      if (htmlEl.style) {
+        htmlEl.style.minWidth = '0';
+        htmlEl.style.maxWidth = '100%';
+      }
+    });
+
     // 2. Create printHost (#print-container)
     const printHost = document.createElement('div');
     printHost.id = 'print-container';
