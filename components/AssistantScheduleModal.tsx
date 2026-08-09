@@ -85,7 +85,6 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
   // ── View Mode & Selection State ─────────────────────────────────────────────
   const [viewMode, setViewMode] = useState<'daily' | 'individual'>('daily');
   const [selectedIndividualId, setSelectedIndividualId] = useState<string | null>(null);
-  const [printAllMode, setPrintAllMode] = useState(false);
 
   // ── Schedule State ──────────────────────────────────────────────────────────
   const [activeDay, setActiveDay] = useState(0);
@@ -97,6 +96,11 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
   const [conflicts, setConflicts] = useState<Set<string>>(new Set());
   const [selectedAssistantIds, setSelectedAssistantIds] = useState<string[]>([]);
   const [isCopyMenuOpen, setIsCopyMenuOpen] = useState(false);
+
+  // Print DOM references
+  const dailyPrintRef = useRef<HTMLDivElement>(null);
+  const individualPrintRef = useRef<HTMLDivElement>(null);
+  const allIndividualPrintRef = useRef<HTMLDivElement>(null);
 
   // colour map: assistantId → class string
   const colorMap = useRef<Record<string, string>>({});
@@ -310,18 +314,55 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
     ? slots.filter(s => s.day === activeDay && conflicts.has(s.id)).length
     : 0;
 
-  // ── Print handlers ───────────────────────────────────────────────────────────
-  const handlePrintCurrent = () => {
-    setPrintAllMode(false);
-    setTimeout(() => window.print(), 100);
+  // ── Bulletproof Print Engine ─────────────────────────────────────────────────
+  const triggerPrint = (targetElement: HTMLElement) => {
+    const rootElement = document.getElementById('root');
+    if (!rootElement || !targetElement) return;
+
+    // 1. Clone element to print
+    const printContents = targetElement.cloneNode(true) as HTMLElement;
+
+    // Remove interactive/no-print elements inside clone
+    printContents.querySelectorAll('.no-print').forEach(el => el.remove());
+
+    // 2. Create printHost (#print-container)
+    const printHost = document.createElement('div');
+    printHost.id = 'print-container';
+    printHost.appendChild(printContents);
+
+    // 3. Hide root element & append printHost to body
+    const originalDisplay = rootElement.style.display;
+    rootElement.style.display = 'none';
+    document.body.appendChild(printHost);
+
+    // 4. Cleanup after print
+    const cleanup = () => {
+      rootElement.style.display = originalDisplay;
+      if (document.body.contains(printHost)) {
+        document.body.removeChild(printHost);
+      }
+      window.removeEventListener('afterprint', cleanup);
+    };
+
+    window.removeEventListener('afterprint', cleanup);
+    window.addEventListener('afterprint', cleanup);
+
+    // 5. Trigger print dialog
+    window.print();
+  };
+
+  const handlePrintCurrentView = () => {
+    if (viewMode === 'daily' && dailyPrintRef.current) {
+      triggerPrint(dailyPrintRef.current);
+    } else if (viewMode === 'individual' && individualPrintRef.current) {
+      triggerPrint(individualPrintRef.current);
+    }
   };
 
   const handlePrintAllIndividual = () => {
-    setPrintAllMode(true);
-    setTimeout(() => {
-      window.print();
-      setPrintAllMode(false);
-    }, 200);
+    if (allIndividualPrintRef.current) {
+      triggerPrint(allIndividualPrintRef.current);
+    }
   };
 
   if (!isOpen) return null;
@@ -329,49 +370,8 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
   const currentIndividualAssistant = visibleAssistants.find(a => a.id === selectedIndividualId);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-50 p-2 assistant-modal-root">
-      {/* ── Print Styles ── */}
-      <style>{`
-        @media print {
-          body * {
-            visibility: hidden;
-          }
-          .assistant-modal-root, .assistant-modal-root * {
-            visibility: visible;
-          }
-          .assistant-modal-root {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: auto;
-            background: white !important;
-            padding: 0 !important;
-          }
-          .assistant-printable-container {
-            width: 100% !important;
-            height: auto !important;
-            max-width: none !important;
-            box-shadow: none !important;
-            border-radius: 0 !important;
-          }
-          .no-print {
-            display: none !important;
-          }
-          .print-only {
-            display: block !important;
-          }
-          .page-break-after {
-            page-break-after: always;
-            break-after: page;
-          }
-        }
-        .print-only {
-          display: none;
-        }
-      `}</style>
-
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl flex flex-col assistant-printable-container"
+    <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-50 p-2">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl flex flex-col"
            style={{ width: '98vw', height: '96vh', maxWidth: '1800px' }}
            onClick={e => e.stopPropagation()}>
 
@@ -472,7 +472,7 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
               </button>
             )}
 
-            <button onClick={handlePrintCurrent}
+            <button onClick={handlePrintCurrentView}
               className="p-2 text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold"
               title="Nyomtatás">
               <PrintIcon className="w-4 h-4" />
@@ -522,7 +522,7 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
 
         {/* ── View 1: DAILY LOCATION MATRIX VIEW ── */}
         {viewMode === 'daily' && (
-          <>
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
             {/* Day selector */}
             <div className="flex gap-1 px-5 py-2 border-b border-gray-200 dark:border-gray-700 shrink-0 no-print">
               {DAYS_OF_WEEK.map((day, dIdx) => {
@@ -548,162 +548,166 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
               </div>
             </div>
 
-            {/* Print Title Header */}
-            <div className="print-only p-4 border-b text-center">
-              <h1 className="text-xl font-bold">Asszisztens Beosztás – Napi Összesítő</h1>
-              <h2 className="text-md font-semibold text-gray-600">{DAYS_OF_WEEK[activeDay]}</h2>
-            </div>
+            {/* Printable Daily Block */}
+            <div ref={dailyPrintRef} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              {/* Print Header */}
+              <div className="p-3 border-b text-center">
+                <h2 className="text-xl font-bold text-gray-900">
+                  Asszisztens Beosztás – {DAYS_OF_WEEK[activeDay]}
+                </h2>
+              </div>
 
-            {/* Grid + Sidebar */}
-            <div className="flex flex-1 min-h-0 overflow-hidden">
-              <div className="flex-1 overflow-auto p-3">
-                <table className="border-collapse w-full text-xs" style={{ minWidth: `${100 + locations.length * 90}px` }}>
-                  <thead>
-                    <tr className="bg-teal-50 dark:bg-teal-950/40">
-                      <th className="border border-gray-300 dark:border-gray-600 p-2 font-bold text-gray-700 dark:text-gray-300 whitespace-nowrap bg-teal-100 dark:bg-teal-900/40"
-                          style={{ minWidth: '90px' }}>
-                        Idő/nap
-                      </th>
-                      {locations.map((loc, lIdx) => (
-                        <th key={lIdx}
-                            className="border border-gray-300 dark:border-gray-600 p-2 font-bold text-teal-800 dark:text-teal-300 text-center whitespace-nowrap"
-                            style={{ minWidth: '88px' }}>
-                          {loc}
+              {/* Grid + Sidebar */}
+              <div className="flex flex-1 min-h-0 overflow-hidden">
+                <div className="flex-1 overflow-auto p-3">
+                  <table className="border-collapse w-full text-xs" style={{ minWidth: `${100 + locations.length * 90}px` }}>
+                    <thead>
+                      <tr className="bg-teal-50 dark:bg-teal-950/40">
+                        <th className="border border-gray-300 dark:border-gray-600 p-2 font-bold text-gray-700 dark:text-gray-300 whitespace-nowrap bg-teal-100 dark:bg-teal-900/40"
+                            style={{ minWidth: '90px' }}>
+                          Idő/nap
                         </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ASSISTANT_TIME_SLOTS.map((ts, tsIdx) => (
-                      <tr key={tsIdx} className={tsIdx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50'}>
-                        <td className="border border-gray-300 dark:border-gray-600 p-1.5 font-semibold text-gray-600 dark:text-gray-400 whitespace-nowrap text-center bg-teal-50 dark:bg-teal-950/20">
-                          {ts}
-                        </td>
-                        {locations.map((_, locIdx) => {
-                          const cellSlots = getCellSlots(tsIdx, locIdx);
-                          const isDragOver = dragOverCell?.ts === tsIdx && dragOverCell?.loc === locIdx;
-                          const hasConflict = cellSlots.some(s => conflicts.has(s.id));
-
-                          return (
-                            <td key={locIdx}
-                                onDragOver={e => handleDragOver(e, tsIdx, locIdx)}
-                                onDragLeave={handleDragLeave}
-                                onDrop={e => handleDrop(e, tsIdx, locIdx)}
-                                className={`border border-gray-300 dark:border-gray-600 p-1 align-top transition-colors cursor-default ${
-                                  isDragOver
-                                    ? 'bg-teal-100 dark:bg-teal-800/40 ring-2 ring-teal-400'
-                                    : hasConflict
-                                    ? 'bg-red-50 dark:bg-red-950/30'
-                                    : ''
-                                }`}
-                                style={{ minHeight: '36px', verticalAlign: 'top' }}>
-                              <div className="flex flex-col gap-0.5">
-                                {cellSlots.map(slot => {
-                                  const assistant = allTeachers.find(t => t.id === slot.assistantId);
-                                  const isConflict = conflicts.has(slot.id);
-                                  const colorClass = getColor(slot.assistantId);
-
-                                  return (
-                                    <div key={slot.id}
-                                         draggable
-                                         onDragStart={e => handleDragStartSlot(e, slot.id)}
-                                         className={`flex items-center justify-between gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border cursor-grab active:cursor-grabbing ${
-                                           isConflict
-                                             ? 'bg-red-200 text-red-900 border-red-400 dark:bg-red-800/60 dark:text-red-200'
-                                             : colorClass
-                                         }`}
-                                         title={isConflict ? '⚠️ Ütközés! Ez az asszisztens már máshol is be van osztva ebben az idősávban.' : assistant?.name}>
-                                      <span className="truncate max-w-[60px]">
-                                        {isConflict && '⚠️ '}
-                                        {assistant?.name.split(' ').pop() ?? '?'}
-                                      </span>
-                                      <button
-                                        onClick={() => handleRemoveSlot(slot.id)}
-                                        className="shrink-0 text-current opacity-60 hover:opacity-100 leading-none no-print"
-                                        title="Törlés">
-                                        ×
-                                      </button>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </td>
-                          );
-                        })}
+                        {locations.map((loc, lIdx) => (
+                          <th key={lIdx}
+                              className="border border-gray-300 dark:border-gray-600 p-2 font-bold text-teal-800 dark:text-teal-300 text-center whitespace-nowrap"
+                              style={{ minWidth: '88px' }}>
+                            {loc}
+                          </th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {ASSISTANT_TIME_SLOTS.map((ts, tsIdx) => (
+                        <tr key={tsIdx} className={tsIdx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50'}>
+                          <td className="border border-gray-300 dark:border-gray-600 p-1.5 font-semibold text-gray-600 dark:text-gray-400 whitespace-nowrap text-center bg-teal-50 dark:bg-teal-950/20">
+                            {ts}
+                          </td>
+                          {locations.map((_, locIdx) => {
+                            const cellSlots = getCellSlots(tsIdx, locIdx);
+                            const isDragOver = dragOverCell?.ts === tsIdx && dragOverCell?.loc === locIdx;
+                            const hasConflict = cellSlots.some(s => conflicts.has(s.id));
 
-              {/* Sidebar */}
-              <div className="w-56 shrink-0 border-l border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 flex flex-col overflow-hidden no-print">
-                <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
-                  <h3 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
-                    👤 Asszisztensek
-                  </h3>
-                  <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">Húzd a cellába</p>
+                            return (
+                              <td key={locIdx}
+                                  onDragOver={e => handleDragOver(e, tsIdx, locIdx)}
+                                  onDragLeave={handleDragLeave}
+                                  onDrop={e => handleDrop(e, tsIdx, locIdx)}
+                                  className={`border border-gray-300 dark:border-gray-600 p-1 align-top transition-colors cursor-default ${
+                                    isDragOver
+                                      ? 'bg-teal-100 dark:bg-teal-800/40 ring-2 ring-teal-400'
+                                      : hasConflict
+                                      ? 'bg-red-50 dark:bg-red-950/30'
+                                      : ''
+                                  }`}
+                                  style={{ minHeight: '36px', verticalAlign: 'top' }}>
+                                <div className="flex flex-col gap-0.5">
+                                  {cellSlots.map(slot => {
+                                    const assistant = allTeachers.find(t => t.id === slot.assistantId);
+                                    const isConflict = conflicts.has(slot.id);
+                                    const colorClass = getColor(slot.assistantId);
+
+                                    return (
+                                      <div key={slot.id}
+                                           draggable
+                                           onDragStart={e => handleDragStartSlot(e, slot.id)}
+                                           className={`flex items-center justify-between gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border cursor-grab active:cursor-grabbing ${
+                                             isConflict
+                                               ? 'bg-red-200 text-red-900 border-red-400 dark:bg-red-800/60 dark:text-red-200'
+                                               : colorClass
+                                           }`}
+                                           title={isConflict ? '⚠️ Ütközés! Ez az asszisztens már máshol is be van osztva ebben az idősávban.' : assistant?.name}>
+                                        <span className="truncate max-w-[60px]">
+                                          {isConflict && '⚠️ '}
+                                          {assistant?.name.split(' ').pop() ?? '?'}
+                                        </span>
+                                        <button
+                                          onClick={() => handleRemoveSlot(slot.id)}
+                                          className="shrink-0 text-current opacity-60 hover:opacity-100 leading-none no-print"
+                                          title="Törlés">
+                                          ×
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-                <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
-                  {visibleAssistants.length === 0 && (
-                    <p className="text-xs text-gray-400 dark:text-gray-500 italic p-2 text-center">
-                      Nincs kiválasztott asszisztens.
-                    </p>
-                  )}
-                  {visibleAssistants.map(assistant => {
-                    const colorClass = getColor(assistant.id);
-                    const daySlots = slots.filter(s => s.day === activeDay && s.assistantId === assistant.id);
-                    const hasConflictToday = daySlots.some(s => conflicts.has(s.id));
 
-                    const totalMinutes = daySlots.reduce(
-                      (sum, s) => sum + (ASSISTANT_SLOT_DURATIONS[s.timeSlotIndex] ?? 0),
-                      0
-                    );
-
-                    return (
-                      <div key={assistant.id}
-                           draggable
-                           onDragStart={e => handleDragStartAssistant(e, assistant.id)}
-                           className={`px-2.5 py-2 rounded-lg border font-semibold text-xs cursor-grab active:cursor-grabbing select-none shadow-xs transition-all hover:shadow-md ${colorClass} ${
-                             hasConflictToday ? 'ring-2 ring-red-400' : ''
-                           }`}
-                           title={hasConflictToday ? '⚠️ Ütközés van ezen a napon!' : 'Húzd a táblára'}>
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="truncate">{assistant.name}</span>
-                          {hasConflictToday && <span title="Ütközés!">⚠️</span>}
-                        </div>
-                        {daySlots.length > 0 ? (
-                          <div className="flex items-center justify-between mt-0.5">
-                            <span className="text-[9px] opacity-70">
-                              {daySlots.length}× beosztás
-                            </span>
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-colors ${
-                              totalMinutes >= 480
-                                ? 'bg-emerald-800 text-white shadow-xs ring-1 ring-emerald-500 font-extrabold'
-                                : 'opacity-80 bg-black/10 dark:bg-white/10'
-                            }`}
-                            title={totalMinutes >= 480 ? 'Elérte vagy meghaladta a 8 órát!' : ''}>
-                              ⏱ {formatMinutes(totalMinutes)}
-                              {totalMinutes >= 480 && ' ✓'}
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="text-[9px] opacity-50 mt-0.5">Nincs beosztás</div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                {conflicts.size > 0 && (
-                  <div className="px-3 py-2 border-t border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 shrink-0">
-                    <p className="text-[10px] text-red-700 dark:text-red-300 font-semibold">
-                      ⚠️ Ugyanabban az idősávban egy asszisztens több helyen is szerepel!
-                    </p>
+                {/* Sidebar */}
+                <div className="w-56 shrink-0 border-l border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 flex flex-col overflow-hidden no-print">
+                  <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+                    <h3 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
+                      👤 Asszisztensek
+                    </h3>
+                    <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">Húzd a cellába</p>
                   </div>
-                )}
+                  <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+                    {visibleAssistants.length === 0 && (
+                      <p className="text-xs text-gray-400 dark:text-gray-500 italic p-2 text-center">
+                        Nincs kiválasztott asszisztens.
+                      </p>
+                    )}
+                    {visibleAssistants.map(assistant => {
+                      const colorClass = getColor(assistant.id);
+                      const daySlots = slots.filter(s => s.day === activeDay && s.assistantId === assistant.id);
+                      const hasConflictToday = daySlots.some(s => conflicts.has(s.id));
+
+                      const totalMinutes = daySlots.reduce(
+                        (sum, s) => sum + (ASSISTANT_SLOT_DURATIONS[s.timeSlotIndex] ?? 0),
+                        0
+                      );
+
+                      return (
+                        <div key={assistant.id}
+                             draggable
+                             onDragStart={e => handleDragStartAssistant(e, assistant.id)}
+                             className={`px-2.5 py-2 rounded-lg border font-semibold text-xs cursor-grab active:cursor-grabbing select-none shadow-xs transition-all hover:shadow-md ${colorClass} ${
+                               hasConflictToday ? 'ring-2 ring-red-400' : ''
+                             }`}
+                             title={hasConflictToday ? '⚠️ Ütközés van ezen a napon!' : 'Húzd a táblára'}>
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="truncate">{assistant.name}</span>
+                            {hasConflictToday && <span title="Ütközés!">⚠️</span>}
+                          </div>
+                          {daySlots.length > 0 ? (
+                            <div className="flex items-center justify-between mt-0.5">
+                              <span className="text-[9px] opacity-70">
+                                {daySlots.length}× beosztás
+                              </span>
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-colors ${
+                                totalMinutes >= 480
+                                  ? 'bg-emerald-800 text-white shadow-xs ring-1 ring-emerald-500 font-extrabold'
+                                  : 'opacity-80 bg-black/10 dark:bg-white/10'
+                              }`}
+                              title={totalMinutes >= 480 ? 'Elérte vagy meghaladta a 8 órát!' : ''}>
+                                ⏱ {formatMinutes(totalMinutes)}
+                                {totalMinutes >= 480 && ' ✓'}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="text-[9px] opacity-50 mt-0.5">Nincs beosztás</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {conflicts.size > 0 && (
+                    <div className="px-3 py-2 border-t border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 shrink-0">
+                      <p className="text-[10px] text-red-700 dark:text-red-300 font-semibold">
+                        ⚠️ Ugyanabban az idősávban egy asszisztens több helyen is szerepel!
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-          </>
+          </div>
         )}
 
         {/* ── View 2: INDIVIDUAL WORKER WEEKLY VIEW ── */}
@@ -742,123 +746,24 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
               })}
             </div>
 
-            {/* Individual Timetable Content */}
+            {/* Individual Timetable View Container */}
             <div className="flex-1 overflow-auto p-4">
-              {(printAllMode ? visibleAssistants : (currentIndividualAssistant ? [currentIndividualAssistant] : [])).map((assistant, aIdx) => {
-                const assistantWeeklySlots = slots.filter(s => s.assistantId === assistant.id);
-                const weeklyMinutes = assistantWeeklySlots.reduce(
-                  (sum, s) => sum + (ASSISTANT_SLOT_DURATIONS[s.timeSlotIndex] ?? 0),
-                  0
-                );
+              {currentIndividualAssistant && (
+                <div ref={individualPrintRef}>
+                  {renderIndividualTimetable(currentIndividualAssistant)}
+                </div>
+              )}
+            </div>
 
-                return (
-                  <div key={assistant.id} className={`mb-8 ${printAllMode && aIdx < visibleAssistants.length - 1 ? 'page-break-after' : ''}`}>
-                    {/* Header info for assistant */}
-                    <div className="flex items-center justify-between mb-3 bg-teal-50 dark:bg-teal-950/40 p-3 rounded-xl border border-teal-200 dark:border-teal-800">
-                      <div>
-                        <h3 className="text-lg font-bold text-teal-900 dark:text-teal-100">
-                          {assistant.name} – Egyéni Heti Beosztás
-                        </h3>
-                        <p className="text-xs text-teal-700 dark:text-teal-300">
-                          Összes hetente beosztott munkaidő: <strong className="text-sm">{formatMinutes(weeklyMinutes)}</strong> ({assistantWeeklySlots.length} beosztott idősáv)
-                        </p>
-                      </div>
-                      <span className="text-xs font-bold px-3 py-1 bg-teal-600 text-white rounded-full">
-                        Heti Órarend
-                      </span>
-                    </div>
-
-                    {/* Weekly Grid */}
-                    <table className="border-collapse w-full text-xs shadow-sm rounded-lg overflow-hidden border border-gray-300 dark:border-gray-700">
-                      <thead>
-                        <tr className="bg-teal-700 text-white">
-                          <th className="border border-teal-800 p-2 font-bold w-24 text-center">Idősáv</th>
-                          {DAYS_OF_WEEK.map((dayName, dIdx) => {
-                            const daySlots = assistantWeeklySlots.filter(s => s.day === dIdx);
-                            const dayMin = daySlots.reduce(
-                              (sum, s) => sum + (ASSISTANT_SLOT_DURATIONS[s.timeSlotIndex] ?? 0), 0
-                            );
-                            const isFullDay = dayMin >= 480;
-                            return (
-                              <th key={dIdx} className={`border border-teal-800 p-2 font-bold text-center ${
-                                isFullDay ? 'bg-emerald-900 text-emerald-100' : ''
-                              }`}>
-                                <div>{dayName}</div>
-                                <div className={`text-[10px] mt-0.5 px-1 py-0.5 rounded inline-block ${
-                                  isFullDay ? 'bg-emerald-800 text-white font-extrabold shadow-xs' : 'font-normal opacity-90'
-                                }`}>
-                                  {formatMinutes(dayMin)}{isFullDay && ' ✓'}
-                                </div>
-                              </th>
-                            );
-                          })}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {ASSISTANT_TIME_SLOTS.map((ts, tsIdx) => (
-                          <tr key={tsIdx} className={tsIdx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50'}>
-                            <td className="border border-gray-300 dark:border-gray-700 p-2 font-semibold text-gray-600 dark:text-gray-400 text-center bg-gray-100 dark:bg-gray-800 whitespace-nowrap">
-                              {ts}
-                            </td>
-                            {DAYS_OF_WEEK.map((_, dIdx) => {
-                              const cellAssignedSlots = assistantWeeklySlots.filter(
-                                s => s.day === dIdx && s.timeSlotIndex === tsIdx
-                              );
-                              const hasConflict = cellAssignedSlots.some(s => conflicts.has(s.id));
-
-                              return (
-                                <td key={dIdx} className={`border border-gray-300 dark:border-gray-700 p-1.5 text-center align-middle ${
-                                  cellAssignedSlots.length > 0
-                                    ? hasConflict
-                                      ? 'bg-red-100 dark:bg-red-950/40 text-red-900 font-bold'
-                                      : 'bg-teal-50 dark:bg-teal-900/30'
-                                    : ''
-                                }`}>
-                                  {cellAssignedSlots.length > 0 ? (
-                                    <div className="flex flex-wrap justify-center gap-1">
-                                      {cellAssignedSlots.map(slot => (
-                                        <span key={slot.id} className={`px-2.5 py-1 rounded-md text-xs font-bold border shadow-xs inline-block ${
-                                          hasConflict
-                                            ? 'bg-red-200 text-red-900 border-red-400'
-                                            : 'bg-teal-600 text-white border-teal-700'
-                                        }`}>
-                                          {hasConflict && '⚠️ '}
-                                          {locations[slot.locationIndex] ?? `Hely ${slot.locationIndex + 1}`}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  ) : (
-                                    <span className="text-gray-300 dark:text-gray-600 font-light">-</span>
-                                  )}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot>
-                        <tr className="bg-teal-100 dark:bg-teal-950 font-bold text-teal-900 dark:text-teal-200">
-                          <td className="border border-teal-300 dark:border-teal-800 p-2 text-center">Összesen:</td>
-                          {DAYS_OF_WEEK.map((_, dIdx) => {
-                            const daySlots = assistantWeeklySlots.filter(s => s.day === dIdx);
-                            const dayMin = daySlots.reduce(
-                              (sum, s) => sum + (ASSISTANT_SLOT_DURATIONS[s.timeSlotIndex] ?? 0), 0
-                            );
-                            const isFullDay = dayMin >= 480;
-                            return (
-                              <td key={dIdx} className={`border border-teal-300 dark:border-teal-800 p-2 text-center text-xs ${
-                                isFullDay ? 'bg-emerald-800 text-white font-extrabold' : ''
-                              }`}>
-                                ⏱ {formatMinutes(dayMin)}{isFullDay && ' ✓'}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      </tfoot>
-                    </table>
+            {/* Hidden Container for Printing ALL Assistants */}
+            <div className="hidden">
+              <div ref={allIndividualPrintRef}>
+                {visibleAssistants.map((assistant, index) => (
+                  <div key={assistant.id} className={index < visibleAssistants.length - 1 ? 'page-break-after' : ''}>
+                    {renderIndividualTimetable(assistant)}
                   </div>
-                );
-              })}
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -866,4 +771,121 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
       </div>
     </div>
   );
+
+  // ── Helper to render a single assistant's weekly timetable block ─────────────
+  function renderIndividualTimetable(assistant: Teacher) {
+    const assistantWeeklySlots = slots.filter(s => s.assistantId === assistant.id);
+    const weeklyMinutes = assistantWeeklySlots.reduce(
+      (sum, s) => sum + (ASSISTANT_SLOT_DURATIONS[s.timeSlotIndex] ?? 0),
+      0
+    );
+
+    return (
+      <div className="mb-8">
+        {/* Header info for assistant */}
+        <div className="flex items-center justify-between mb-3 bg-teal-50 dark:bg-teal-950/40 p-3 rounded-xl border border-teal-200 dark:border-teal-800">
+          <div>
+            <h2 className="text-xl font-bold text-teal-900 dark:text-teal-100">
+              {assistant.name} – Egyéni Heti Beosztás
+            </h2>
+            <p className="text-xs text-teal-700 dark:text-teal-300">
+              Összes hetente beosztott munkaidő: <strong className="text-sm">{formatMinutes(weeklyMinutes)}</strong> ({assistantWeeklySlots.length} beosztott idősáv)
+            </p>
+          </div>
+          <span className="text-xs font-bold px-3 py-1 bg-teal-600 text-white rounded-full">
+            Heti Órarend
+          </span>
+        </div>
+
+        {/* Weekly Grid */}
+        <table className="border-collapse w-full text-xs shadow-sm rounded-lg overflow-hidden border border-gray-300 dark:border-gray-700">
+          <thead>
+            <tr className="bg-teal-700 text-white">
+              <th className="border border-teal-800 p-2 font-bold w-24 text-center">Idősáv</th>
+              {DAYS_OF_WEEK.map((dayName, dIdx) => {
+                const daySlots = assistantWeeklySlots.filter(s => s.day === dIdx);
+                const dayMin = daySlots.reduce(
+                  (sum, s) => sum + (ASSISTANT_SLOT_DURATIONS[s.timeSlotIndex] ?? 0), 0
+                );
+                const isFullDay = dayMin >= 480;
+                return (
+                  <th key={dIdx} className={`border border-teal-800 p-2 font-bold text-center ${
+                    isFullDay ? 'bg-emerald-900 text-emerald-100' : ''
+                  }`}>
+                    <div>{dayName}</div>
+                    <div className={`text-[10px] mt-0.5 px-1 py-0.5 rounded inline-block ${
+                      isFullDay ? 'bg-emerald-800 text-white font-extrabold shadow-xs' : 'font-normal opacity-90'
+                    }`}>
+                      {formatMinutes(dayMin)}{isFullDay && ' ✓'}
+                    </div>
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {ASSISTANT_TIME_SLOTS.map((ts, tsIdx) => (
+              <tr key={tsIdx} className={tsIdx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50'}>
+                <td className="border border-gray-300 dark:border-gray-700 p-2 font-semibold text-gray-600 dark:text-gray-400 text-center bg-gray-100 dark:bg-gray-800 whitespace-nowrap">
+                  {ts}
+                </td>
+                {DAYS_OF_WEEK.map((_, dIdx) => {
+                  const cellAssignedSlots = assistantWeeklySlots.filter(
+                    s => s.day === dIdx && s.timeSlotIndex === tsIdx
+                  );
+                  const hasConflict = cellAssignedSlots.some(s => conflicts.has(s.id));
+
+                  return (
+                    <td key={dIdx} className={`border border-gray-300 dark:border-gray-700 p-1.5 text-center align-middle ${
+                      cellAssignedSlots.length > 0
+                        ? hasConflict
+                          ? 'bg-red-100 dark:bg-red-950/40 text-red-900 font-bold'
+                          : 'bg-teal-50 dark:bg-teal-900/30'
+                        : ''
+                    }`}>
+                      {cellAssignedSlots.length > 0 ? (
+                        <div className="flex flex-wrap justify-center gap-1">
+                          {cellAssignedSlots.map(slot => (
+                            <span key={slot.id} className={`px-2.5 py-1 rounded-md text-xs font-bold border shadow-xs inline-block ${
+                              hasConflict
+                                ? 'bg-red-200 text-red-900 border-red-400'
+                                : 'bg-teal-600 text-white border-teal-700'
+                            }`}>
+                              {hasConflict && '⚠️ '}
+                              {locations[slot.locationIndex] ?? `Hely ${slot.locationIndex + 1}`}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-gray-300 dark:text-gray-600 font-light">-</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="bg-teal-100 dark:bg-teal-950 font-bold text-teal-900 dark:text-teal-200">
+              <td className="border border-teal-300 dark:border-teal-800 p-2 text-center">Összesen:</td>
+              {DAYS_OF_WEEK.map((_, dIdx) => {
+                const daySlots = assistantWeeklySlots.filter(s => s.day === dIdx);
+                const dayMin = daySlots.reduce(
+                  (sum, s) => sum + (ASSISTANT_SLOT_DURATIONS[s.timeSlotIndex] ?? 0), 0
+                );
+                const isFullDay = dayMin >= 480;
+                return (
+                  <td key={dIdx} className={`border border-teal-300 dark:border-teal-800 p-2 text-center text-xs ${
+                    isFullDay ? 'bg-emerald-800 text-white font-extrabold' : ''
+                  }`}>
+                    ⏱ {formatMinutes(dayMin)}{isFullDay && ' ✓'}
+                  </td>
+                );
+              })}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    );
+  }
 };
