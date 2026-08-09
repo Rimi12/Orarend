@@ -2,7 +2,6 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import type { Teacher, AssistantSlot, AssistantSchedule } from '../types.ts';
 import { DAYS_OF_WEEK } from '../constants.ts';
 import { PrintIcon } from './icons/PrintIcon.tsx';
-import { TrashIcon } from './icons/TrashIcon.tsx';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -83,7 +82,12 @@ interface AssistantScheduleModalProps {
 export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
   isOpen, onClose, selectedAssistants, allTeachers,
 }) => {
-  // ── State ──────────────────────────────────────────────────────────────────
+  // ── View Mode & Selection State ─────────────────────────────────────────────
+  const [viewMode, setViewMode] = useState<'daily' | 'individual'>('daily');
+  const [selectedIndividualId, setSelectedIndividualId] = useState<string | null>(null);
+  const [printAllMode, setPrintAllMode] = useState(false);
+
+  // ── Schedule State ──────────────────────────────────────────────────────────
   const [activeDay, setActiveDay] = useState(0);
   const [slots, setSlots] = useState<AssistantSlot[]>([]);
   const [locations, setLocations] = useState<string[]>(DEFAULT_LOCATIONS);
@@ -120,16 +124,24 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
     } catch {
       setSelectedAssistantIds(selectedAssistants.map(a => a.id));
     }
-    // build colour map for all selected assistants
     selectedAssistants.forEach((a, i) => {
       colorMap.current[a.id] = PASTEL_COLORS[i % PASTEL_COLORS.length];
     });
   }, [isOpen, selectedAssistants]);
 
+  // Derive current visible assistants
+  const visibleAssistants = allTeachers.filter(t => selectedAssistantIds.includes(t.id));
+
+  // Set default individual selection if not set
+  useEffect(() => {
+    if (visibleAssistants.length > 0 && (!selectedIndividualId || !visibleAssistants.some(a => a.id === selectedIndividualId))) {
+      setSelectedIndividualId(visibleAssistants[0].id);
+    }
+  }, [visibleAssistants, selectedIndividualId]);
+
   // ── Conflict detection ──────────────────────────────────────────────────────
   useEffect(() => {
     const newConflicts = new Set<string>();
-    // group by (assistantId, day, timeSlotIndex)
     const map: Record<string, AssistantSlot[]> = {};
     slots.forEach(s => {
       const key = `${s.assistantId}-${s.day}-${s.timeSlotIndex}`;
@@ -154,23 +166,18 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
     localStorage.setItem(ASSISTANT_SCHEDULE_KEY, JSON.stringify(state));
   }, []);
 
-  // ── Derive current visible assistants ──────────────────────────────────────
-  const visibleAssistants = allTeachers.filter(t => selectedAssistantIds.includes(t.id));
-
-  // ── Drag handlers: source (sidebar assistant chip) ─────────────────────────
+  // ── Drag handlers ───────────────────────────────────────────────────────────
   const handleDragStartAssistant = (e: React.DragEvent, assistantId: string) => {
     e.dataTransfer.setData(DRAG_ASSISTANT, assistantId);
     e.dataTransfer.effectAllowed = 'copy';
   };
 
-  // ── Drag handlers: source (existing slot on the grid) ─────────────────────
   const handleDragStartSlot = (e: React.DragEvent, slotId: string) => {
     e.dataTransfer.setData(DRAG_SLOT, slotId);
     e.dataTransfer.effectAllowed = 'move';
     e.stopPropagation();
   };
 
-  // ── Drag handlers: cell (target) ──────────────────────────────────────────
   const handleDragOver = (e: React.DragEvent, ts: number, loc: number) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
@@ -187,7 +194,6 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
     const slotId      = e.dataTransfer.getData(DRAG_SLOT);
 
     if (assistantId) {
-      // PREVENT DUPLICATE: skip if this exact (assistant, day, timeslot, location) already exists
       const alreadyExists = slots.some(
         s => s.assistantId === assistantId &&
              s.day === activeDay &&
@@ -196,7 +202,6 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
       );
       if (alreadyExists) return;
 
-      // New slot from sidebar
       const newSlot: AssistantSlot = {
         id: genId(),
         assistantId,
@@ -208,7 +213,6 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
       setSlots(updated);
       save(updated, locations, selectedAssistantIds);
     } else if (slotId) {
-      // Move existing slot – also prevent duplicate at destination
       const movingSlot = slots.find(s => s.id === slotId);
       if (!movingSlot) return;
       const alreadyExists = slots.some(
@@ -247,14 +251,11 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
     }
   };
 
-  // ── Copy active day's slots to another day ─────────────────────────────────
   const handleCopyDayTo = (targetDay: number) => {
     setIsCopyMenuOpen(false);
     if (targetDay === activeDay) return;
-    // Get current day's slots
     const sourceDaySlots = slots.filter(s => s.day === activeDay);
     if (sourceDaySlots.length === 0) return;
-    // Remove existing slots for target day, then add copies
     const withoutTarget = slots.filter(s => s.day !== targetDay);
     const copies: AssistantSlot[] = sourceDaySlots.map(s => ({
       ...s,
@@ -278,7 +279,6 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
 
   const handleRemoveLocation = (idx: number) => {
     const updated = locations.filter((_, i) => i !== idx);
-    // Remove slots that referenced this index; shift higher indices
     const updatedSlots = slots
       .filter(s => s.locationIndex !== idx)
       .map(s => ({ ...s, locationIndex: s.locationIndex > idx ? s.locationIndex - 1 : s.locationIndex }));
@@ -302,7 +302,7 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
     save(updatedSlots, updated, selectedAssistantIds);
   };
 
-  // ── Helper: slots for a given cell on the active day ──────────────────────
+  // ── Cell Helpers ─────────────────────────────────────────────────────────────
   const getCellSlots = (ts: number, loc: number) =>
     slots.filter(s => s.day === activeDay && s.timeSlotIndex === ts && s.locationIndex === loc);
 
@@ -310,78 +310,175 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
     ? slots.filter(s => s.day === activeDay && conflicts.has(s.id)).length
     : 0;
 
+  // ── Print handlers ───────────────────────────────────────────────────────────
+  const handlePrintCurrent = () => {
+    setPrintAllMode(false);
+    setTimeout(() => window.print(), 100);
+  };
+
+  const handlePrintAllIndividual = () => {
+    setPrintAllMode(true);
+    setTimeout(() => {
+      window.print();
+      setPrintAllMode(false);
+    }, 200);
+  };
+
   if (!isOpen) return null;
 
+  const currentIndividualAssistant = visibleAssistants.find(a => a.id === selectedIndividualId);
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-50 p-2">
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl flex flex-col"
+    <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-50 p-2 assistant-modal-root">
+      {/* ── Print Styles ── */}
+      <style>{`
+        @media print {
+          body * {
+            visibility: hidden;
+          }
+          .assistant-modal-root, .assistant-modal-root * {
+            visibility: visible;
+          }
+          .assistant-modal-root {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: auto;
+            background: white !important;
+            padding: 0 !important;
+          }
+          .assistant-printable-container {
+            width: 100% !important;
+            height: auto !important;
+            max-width: none !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+          .print-only {
+            display: block !important;
+          }
+          .page-break-after {
+            page-break-after: always;
+            break-after: page;
+          }
+        }
+        .print-only {
+          display: none;
+        }
+      `}</style>
+
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl flex flex-col assistant-printable-container"
            style={{ width: '98vw', height: '96vh', maxWidth: '1800px' }}
            onClick={e => e.stopPropagation()}>
 
         {/* ── Header ── */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0 no-print">
           <div className="flex items-center gap-3">
             <span className="text-2xl">👤</span>
             <div>
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">Asszisztens Beosztás</h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Fogd és vidd az asszisztenst a kívánt cellába</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {viewMode === 'daily' ? 'Fogd és vidd az asszisztenst a kívánt helyszín cellába' : 'Dolgozó egyéni heti órarendje'}
+              </p>
             </div>
-            {conflictCount > 0 && (
+
+            {/* ── View Switcher Toggle ── */}
+            <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl border border-gray-200 dark:border-gray-700 ml-4">
+              <button
+                onClick={() => setViewMode('daily')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                  viewMode === 'daily'
+                    ? 'bg-teal-600 text-white shadow-xs'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}>
+                🏢 Helyszínes (Napi)
+              </button>
+              <button
+                onClick={() => setViewMode('individual')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                  viewMode === 'individual'
+                    ? 'bg-teal-600 text-white shadow-xs'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}>
+                👤 Dolgozó Egyéni (Heti)
+              </button>
+            </div>
+
+            {viewMode === 'daily' && conflictCount > 0 && (
               <span className="px-3 py-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 text-xs font-bold rounded-full animate-pulse">
                 ⚠️ {conflictCount} ütközés ezen a napon!
               </span>
             )}
           </div>
+
           <div className="flex items-center gap-2">
-            <button onClick={() => setIsEditingLocations(v => !v)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${isEditingLocations ? 'bg-amber-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
-              title="Helyszínek szerkesztése">
-              ✏️ Helyszínek
-            </button>
-            {/* ── Copy day button with dropdown ── */}
-            <div className="relative">
-              <button
-                onClick={() => setIsCopyMenuOpen(v => !v)}
-                disabled={slots.filter(s => s.day === activeDay).length === 0}
-                className="px-3 py-1.5 text-xs font-semibold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 rounded-lg hover:bg-blue-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                title="Nap beosztásának másolása más napra">
-                📋 Másolás napra…
-              </button>
-              {isCopyMenuOpen && (
-                <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-10 overflow-hidden">
-                  {DAYS_OF_WEEK.map((dayName, dIdx) => (
-                    dIdx === activeDay ? null : (
-                      <button
-                        key={dIdx}
-                        onClick={() => handleCopyDayTo(dIdx)}
-                        className="block w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors">
-                        → {dayName} (felülírja)
-                      </button>
-                    )
-                  ))}
+            {viewMode === 'daily' && (
+              <>
+                <button onClick={() => setIsEditingLocations(v => !v)}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${isEditingLocations ? 'bg-amber-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
+                  title="Helyszínek szerkesztése">
+                  ✏️ Helyszínek
+                </button>
+                <div className="relative">
                   <button
-                    onClick={() => setIsCopyMenuOpen(false)}
-                    className="block w-full text-left px-4 py-2 text-xs text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 border-t border-gray-100 dark:border-gray-700">
-                    Mégse
+                    onClick={() => setIsCopyMenuOpen(v => !v)}
+                    disabled={slots.filter(s => s.day === activeDay).length === 0}
+                    className="px-3 py-1.5 text-xs font-semibold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 rounded-lg hover:bg-blue-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Nap beosztásának másolása más napra">
+                    📋 Másolás napra…
                   </button>
+                  {isCopyMenuOpen && (
+                    <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-10 overflow-hidden">
+                      {DAYS_OF_WEEK.map((dayName, dIdx) => (
+                        dIdx === activeDay ? null : (
+                          <button
+                            key={dIdx}
+                            onClick={() => handleCopyDayTo(dIdx)}
+                            className="block w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors">
+                            → {dayName} (felülírja)
+                          </button>
+                        )
+                      ))}
+                      <button
+                        onClick={() => setIsCopyMenuOpen(false)}
+                        className="block w-full text-left px-4 py-2 text-xs text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 border-t border-gray-100 dark:border-gray-700">
+                        Mégse
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-            <button onClick={handleClearDay}
-              className="px-3 py-1.5 text-xs font-semibold bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 rounded-lg hover:bg-orange-200 transition-colors"
-              title="Mai nap beosztásának törlése">
-              🗑 Nap törlése
-            </button>
-            <button onClick={handleClearAll}
-              className="px-3 py-1.5 text-xs font-semibold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 rounded-lg hover:bg-red-200 transition-colors"
-              title="Összes beosztás törlése">
-              🗑 Összes törlése
-            </button>
-            <button onClick={() => window.print()}
-              className="p-2 text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
+                <button onClick={handleClearDay}
+                  className="px-3 py-1.5 text-xs font-semibold bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 rounded-lg hover:bg-orange-200 transition-colors"
+                  title="Mai nap beosztásának törlése">
+                  🗑 Nap törlése
+                </button>
+                <button onClick={handleClearAll}
+                  className="px-3 py-1.5 text-xs font-semibold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 rounded-lg hover:bg-red-200 transition-colors"
+                  title="Összes beosztás törlése">
+                  🗑 Összes törlése
+                </button>
+              </>
+            )}
+
+            {viewMode === 'individual' && (
+              <button onClick={handlePrintAllIndividual}
+                className="px-3 py-1.5 text-xs font-semibold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 rounded-lg hover:bg-indigo-200 transition-colors"
+                title="Összes asszisztens egyéni órarendjének kinyomtatása">
+                🖨️ Összes dolgozó nyomtatása
+              </button>
+            )}
+
+            <button onClick={handlePrintCurrent}
+              className="p-2 text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold"
               title="Nyomtatás">
               <PrintIcon className="w-4 h-4" />
+              <span>Nyomtatás</span>
             </button>
+
             <button onClick={onClose}
               className="px-4 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 font-semibold text-sm rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors ml-1">
               Bezárás
@@ -390,8 +487,8 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
         </div>
 
         {/* ── Location editor (collapsible) ── */}
-        {isEditingLocations && (
-          <div className="px-5 py-3 bg-amber-50 dark:bg-amber-900/10 border-b border-amber-200 dark:border-amber-800 shrink-0">
+        {viewMode === 'daily' && isEditingLocations && (
+          <div className="px-5 py-3 bg-amber-50 dark:bg-amber-900/10 border-b border-amber-200 dark:border-amber-800 shrink-0 no-print">
             <h3 className="text-sm font-bold text-amber-800 dark:text-amber-300 mb-2">✏️ Helyszínek szerkesztése</h3>
             <div className="flex flex-wrap gap-2 mb-3">
               {locations.map((loc, idx) => (
@@ -423,179 +520,333 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
           </div>
         )}
 
-        {/* ── Day selector ── */}
-        <div className="flex gap-1 px-5 py-2 border-b border-gray-200 dark:border-gray-700 shrink-0">
-          {DAYS_OF_WEEK.map((day, dIdx) => {
-            const dayConflicts = slots.filter(s => s.day === dIdx && conflicts.has(s.id)).length;
-            return (
-              <button key={dIdx} onClick={() => setActiveDay(dIdx)}
-                className={`px-5 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
-                  activeDay === dIdx
-                    ? 'bg-teal-600 text-white shadow'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                }`}>
-                {day}
-                {dayConflicts > 0 && (
-                  <span className="bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                    {dayConflicts}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-          <div className="ml-4 text-xs text-gray-400 dark:text-gray-500 self-center">
-            {slots.filter(s => s.day === activeDay).length} beosztás ezen a napon
-          </div>
-        </div>
-
-        {/* ── Main content: grid + sidebar ── */}
-        <div className="flex flex-1 min-h-0 overflow-hidden">
-
-          {/* ── Grid ── */}
-          <div className="flex-1 overflow-auto p-3">
-            <table className="border-collapse w-full text-xs" style={{ minWidth: `${100 + locations.length * 90}px` }}>
-              <thead>
-                <tr className="bg-teal-50 dark:bg-teal-950/40">
-                  <th className="border border-gray-300 dark:border-gray-600 p-2 font-bold text-gray-700 dark:text-gray-300 whitespace-nowrap bg-teal-100 dark:bg-teal-900/40"
-                      style={{ minWidth: '90px' }}>
-                    Idő/nap
-                  </th>
-                  {locations.map((loc, lIdx) => (
-                    <th key={lIdx}
-                        className="border border-gray-300 dark:border-gray-600 p-2 font-bold text-teal-800 dark:text-teal-300 text-center whitespace-nowrap"
-                        style={{ minWidth: '88px' }}>
-                      {loc}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {ASSISTANT_TIME_SLOTS.map((ts, tsIdx) => (
-                  <tr key={tsIdx} className={tsIdx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50'}>
-                    <td className="border border-gray-300 dark:border-gray-600 p-1.5 font-semibold text-gray-600 dark:text-gray-400 whitespace-nowrap text-center bg-teal-50 dark:bg-teal-950/20">
-                      {ts}
-                    </td>
-                    {locations.map((_, locIdx) => {
-                      const cellSlots = getCellSlots(tsIdx, locIdx);
-                      const isDragOver = dragOverCell?.ts === tsIdx && dragOverCell?.loc === locIdx;
-                      const hasConflict = cellSlots.some(s => conflicts.has(s.id));
-
-                      return (
-                        <td key={locIdx}
-                            onDragOver={e => handleDragOver(e, tsIdx, locIdx)}
-                            onDragLeave={handleDragLeave}
-                            onDrop={e => handleDrop(e, tsIdx, locIdx)}
-                            className={`border border-gray-300 dark:border-gray-600 p-1 align-top transition-colors cursor-default ${
-                              isDragOver
-                                ? 'bg-teal-100 dark:bg-teal-800/40 ring-2 ring-teal-400'
-                                : hasConflict
-                                ? 'bg-red-50 dark:bg-red-950/30'
-                                : ''
-                            }`}
-                            style={{ minHeight: '36px', verticalAlign: 'top' }}>
-                          <div className="flex flex-col gap-0.5">
-                            {cellSlots.map(slot => {
-                              const assistant = allTeachers.find(t => t.id === slot.assistantId);
-                              const isConflict = conflicts.has(slot.id);
-                              const colorClass = getColor(slot.assistantId);
-
-                              return (
-                                <div key={slot.id}
-                                     draggable
-                                     onDragStart={e => handleDragStartSlot(e, slot.id)}
-                                     className={`flex items-center justify-between gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border cursor-grab active:cursor-grabbing ${
-                                       isConflict
-                                         ? 'bg-red-200 text-red-900 border-red-400 dark:bg-red-800/60 dark:text-red-200'
-                                         : colorClass
-                                     }`}
-                                     title={isConflict ? '⚠️ Ütközés! Ez az asszisztens már máshol is be van osztva ebben az idősávban.' : assistant?.name}>
-                                  <span className="truncate max-w-[60px]">
-                                    {isConflict && '⚠️ '}
-                                    {assistant?.name.split(' ').pop() ?? '?'}
-                                  </span>
-                                  <button
-                                    onClick={() => handleRemoveSlot(slot.id)}
-                                    className="shrink-0 text-current opacity-60 hover:opacity-100 leading-none"
-                                    title="Törlés">
-                                    ×
-                                  </button>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* ── Sidebar: assistants ── */}
-          <div className="w-52 shrink-0 border-l border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 flex flex-col overflow-hidden">
-            <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
-                👤 Asszisztensek
-              </h3>
-              <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">Húzd a cellába</p>
+        {/* ── View 1: DAILY LOCATION MATRIX VIEW ── */}
+        {viewMode === 'daily' && (
+          <>
+            {/* Day selector */}
+            <div className="flex gap-1 px-5 py-2 border-b border-gray-200 dark:border-gray-700 shrink-0 no-print">
+              {DAYS_OF_WEEK.map((day, dIdx) => {
+                const dayConflicts = slots.filter(s => s.day === dIdx && conflicts.has(s.id)).length;
+                return (
+                  <button key={dIdx} onClick={() => setActiveDay(dIdx)}
+                    className={`px-5 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                      activeDay === dIdx
+                        ? 'bg-teal-600 text-white shadow'
+                        : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                    }`}>
+                    {day}
+                    {dayConflicts > 0 && (
+                      <span className="bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                        {dayConflicts}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+              <div className="ml-4 text-xs text-gray-400 dark:text-gray-500 self-center">
+                {slots.filter(s => s.day === activeDay).length} beosztás ezen a napon
+              </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
-              {visibleAssistants.length === 0 && (
-                <p className="text-xs text-gray-400 dark:text-gray-500 italic p-2 text-center">
-                  Nincs kiválasztott asszisztens.<br/>
-                  Zárd be és válassz a listából.
-                </p>
-              )}
-              {visibleAssistants.map(assistant => {
-                const colorClass = getColor(assistant.id);
-                const daySlots = slots.filter(s => s.day === activeDay && s.assistantId === assistant.id);
-                const hasConflictToday = daySlots.some(s => conflicts.has(s.id));
 
-                // Calculate total working time from slot durations
-                const totalMinutes = daySlots.reduce(
+            {/* Print Title Header */}
+            <div className="print-only p-4 border-b text-center">
+              <h1 className="text-xl font-bold">Asszisztens Beosztás – Napi Összesítő</h1>
+              <h2 className="text-md font-semibold text-gray-600">{DAYS_OF_WEEK[activeDay]}</h2>
+            </div>
+
+            {/* Grid + Sidebar */}
+            <div className="flex flex-1 min-h-0 overflow-hidden">
+              <div className="flex-1 overflow-auto p-3">
+                <table className="border-collapse w-full text-xs" style={{ minWidth: `${100 + locations.length * 90}px` }}>
+                  <thead>
+                    <tr className="bg-teal-50 dark:bg-teal-950/40">
+                      <th className="border border-gray-300 dark:border-gray-600 p-2 font-bold text-gray-700 dark:text-gray-300 whitespace-nowrap bg-teal-100 dark:bg-teal-900/40"
+                          style={{ minWidth: '90px' }}>
+                        Idő/nap
+                      </th>
+                      {locations.map((loc, lIdx) => (
+                        <th key={lIdx}
+                            className="border border-gray-300 dark:border-gray-600 p-2 font-bold text-teal-800 dark:text-teal-300 text-center whitespace-nowrap"
+                            style={{ minWidth: '88px' }}>
+                          {loc}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ASSISTANT_TIME_SLOTS.map((ts, tsIdx) => (
+                      <tr key={tsIdx} className={tsIdx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50'}>
+                        <td className="border border-gray-300 dark:border-gray-600 p-1.5 font-semibold text-gray-600 dark:text-gray-400 whitespace-nowrap text-center bg-teal-50 dark:bg-teal-950/20">
+                          {ts}
+                        </td>
+                        {locations.map((_, locIdx) => {
+                          const cellSlots = getCellSlots(tsIdx, locIdx);
+                          const isDragOver = dragOverCell?.ts === tsIdx && dragOverCell?.loc === locIdx;
+                          const hasConflict = cellSlots.some(s => conflicts.has(s.id));
+
+                          return (
+                            <td key={locIdx}
+                                onDragOver={e => handleDragOver(e, tsIdx, locIdx)}
+                                onDragLeave={handleDragLeave}
+                                onDrop={e => handleDrop(e, tsIdx, locIdx)}
+                                className={`border border-gray-300 dark:border-gray-600 p-1 align-top transition-colors cursor-default ${
+                                  isDragOver
+                                    ? 'bg-teal-100 dark:bg-teal-800/40 ring-2 ring-teal-400'
+                                    : hasConflict
+                                    ? 'bg-red-50 dark:bg-red-950/30'
+                                    : ''
+                                }`}
+                                style={{ minHeight: '36px', verticalAlign: 'top' }}>
+                              <div className="flex flex-col gap-0.5">
+                                {cellSlots.map(slot => {
+                                  const assistant = allTeachers.find(t => t.id === slot.assistantId);
+                                  const isConflict = conflicts.has(slot.id);
+                                  const colorClass = getColor(slot.assistantId);
+
+                                  return (
+                                    <div key={slot.id}
+                                         draggable
+                                         onDragStart={e => handleDragStartSlot(e, slot.id)}
+                                         className={`flex items-center justify-between gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border cursor-grab active:cursor-grabbing ${
+                                           isConflict
+                                             ? 'bg-red-200 text-red-900 border-red-400 dark:bg-red-800/60 dark:text-red-200'
+                                             : colorClass
+                                         }`}
+                                         title={isConflict ? '⚠️ Ütközés! Ez az asszisztens már máshol is be van osztva ebben az idősávban.' : assistant?.name}>
+                                      <span className="truncate max-w-[60px]">
+                                        {isConflict && '⚠️ '}
+                                        {assistant?.name.split(' ').pop() ?? '?'}
+                                      </span>
+                                      <button
+                                        onClick={() => handleRemoveSlot(slot.id)}
+                                        className="shrink-0 text-current opacity-60 hover:opacity-100 leading-none no-print"
+                                        title="Törlés">
+                                        ×
+                                      </button>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Sidebar */}
+              <div className="w-56 shrink-0 border-l border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 flex flex-col overflow-hidden no-print">
+                <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+                  <h3 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
+                    👤 Asszisztensek
+                  </h3>
+                  <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">Húzd a cellába</p>
+                </div>
+                <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+                  {visibleAssistants.length === 0 && (
+                    <p className="text-xs text-gray-400 dark:text-gray-500 italic p-2 text-center">
+                      Nincs kiválasztott asszisztens.
+                    </p>
+                  )}
+                  {visibleAssistants.map(assistant => {
+                    const colorClass = getColor(assistant.id);
+                    const daySlots = slots.filter(s => s.day === activeDay && s.assistantId === assistant.id);
+                    const hasConflictToday = daySlots.some(s => conflicts.has(s.id));
+
+                    const totalMinutes = daySlots.reduce(
+                      (sum, s) => sum + (ASSISTANT_SLOT_DURATIONS[s.timeSlotIndex] ?? 0),
+                      0
+                    );
+
+                    return (
+                      <div key={assistant.id}
+                           draggable
+                           onDragStart={e => handleDragStartAssistant(e, assistant.id)}
+                           className={`px-2.5 py-2 rounded-lg border font-semibold text-xs cursor-grab active:cursor-grabbing select-none shadow-xs transition-all hover:shadow-md ${colorClass} ${
+                             hasConflictToday ? 'ring-2 ring-red-400' : ''
+                           }`}
+                           title={hasConflictToday ? '⚠️ Ütközés van ezen a napon!' : 'Húzd a táblára'}>
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="truncate">{assistant.name}</span>
+                          {hasConflictToday && <span title="Ütközés!">⚠️</span>}
+                        </div>
+                        {daySlots.length > 0 ? (
+                          <div className="flex items-center justify-between mt-0.5">
+                            <span className="text-[9px] opacity-70">
+                              {daySlots.length}× beosztás
+                            </span>
+                            <span className="text-[9px] font-bold opacity-80 bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded">
+                              ⏱ {formatMinutes(totalMinutes)}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="text-[9px] opacity-50 mt-0.5">Nincs beosztás</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {conflicts.size > 0 && (
+                  <div className="px-3 py-2 border-t border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 shrink-0">
+                    <p className="text-[10px] text-red-700 dark:text-red-300 font-semibold">
+                      ⚠️ Ugyanabban az idősávban egy asszisztens több helyen is szerepel!
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── View 2: INDIVIDUAL WORKER WEEKLY VIEW ── */}
+        {viewMode === 'individual' && (
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            {/* Assistant selector chips bar */}
+            <div className="px-5 py-2.5 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 flex items-center gap-2 overflow-x-auto shrink-0 no-print">
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-wide mr-2 shrink-0">
+                Dolgozó:
+              </span>
+              {visibleAssistants.map(assistant => {
+                const isSelected = assistant.id === selectedIndividualId;
+                const assistantWeeklySlots = slots.filter(s => s.assistantId === assistant.id);
+                const weeklyMinutes = assistantWeeklySlots.reduce(
                   (sum, s) => sum + (ASSISTANT_SLOT_DURATIONS[s.timeSlotIndex] ?? 0),
                   0
                 );
 
                 return (
-                  <div key={assistant.id}
-                       draggable
-                       onDragStart={e => handleDragStartAssistant(e, assistant.id)}
-                       className={`px-2.5 py-2 rounded-lg border font-semibold text-xs cursor-grab active:cursor-grabbing select-none shadow-xs transition-all hover:shadow-md ${colorClass} ${
-                         hasConflictToday ? 'ring-2 ring-red-400' : ''
-                       }`}
-                       title={hasConflictToday ? '⚠️ Ütkozés van ezen a napon!' : 'Hüzd a táblára'}>
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="truncate">{assistant.name}</span>
-                      {hasConflictToday && <span title="Ütkozés!">⚠️</span>}
-                    </div>
-                    {daySlots.length > 0 ? (
-                      <div className="flex items-center justify-between mt-0.5">
-                        <span className="text-[9px] opacity-70">
-                          {daySlots.length}× beosztás
-                        </span>
-                        <span className="text-[9px] font-bold opacity-80 bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded">
-                          ⏱ {formatMinutes(totalMinutes)}
-                        </span>
+                  <button
+                    key={assistant.id}
+                    onClick={() => setSelectedIndividualId(assistant.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 flex items-center gap-2 border ${
+                      isSelected
+                        ? 'bg-teal-600 text-white border-teal-600 shadow-md ring-2 ring-teal-300'
+                        : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}>
+                    <span>{assistant.name}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${
+                      isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                    }`}>
+                      ⏱ {formatMinutes(weeklyMinutes)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Individual Timetable Content */}
+            <div className="flex-1 overflow-auto p-4">
+              {(printAllMode ? visibleAssistants : (currentIndividualAssistant ? [currentIndividualAssistant] : [])).map((assistant, aIdx) => {
+                const assistantWeeklySlots = slots.filter(s => s.assistantId === assistant.id);
+                const weeklyMinutes = assistantWeeklySlots.reduce(
+                  (sum, s) => sum + (ASSISTANT_SLOT_DURATIONS[s.timeSlotIndex] ?? 0),
+                  0
+                );
+
+                return (
+                  <div key={assistant.id} className={`mb-8 ${printAllMode && aIdx < visibleAssistants.length - 1 ? 'page-break-after' : ''}`}>
+                    {/* Header info for assistant */}
+                    <div className="flex items-center justify-between mb-3 bg-teal-50 dark:bg-teal-950/40 p-3 rounded-xl border border-teal-200 dark:border-teal-800">
+                      <div>
+                        <h3 className="text-lg font-bold text-teal-900 dark:text-teal-100">
+                          {assistant.name} – Egyéni Heti Beosztás
+                        </h3>
+                        <p className="text-xs text-teal-700 dark:text-teal-300">
+                          Összes hetente beosztott munkaidő: <strong className="text-sm">{formatMinutes(weeklyMinutes)}</strong> ({assistantWeeklySlots.length} beosztott idősáv)
+                        </p>
                       </div>
-                    ) : (
-                      <div className="text-[9px] opacity-50 mt-0.5">Nincs beosztás</div>
-                    )}
+                      <span className="text-xs font-bold px-3 py-1 bg-teal-600 text-white rounded-full">
+                        Heti Órarend
+                      </span>
+                    </div>
+
+                    {/* Weekly Grid */}
+                    <table className="border-collapse w-full text-xs shadow-sm rounded-lg overflow-hidden border border-gray-300 dark:border-gray-700">
+                      <thead>
+                        <tr className="bg-teal-700 text-white">
+                          <th className="border border-teal-800 p-2 font-bold w-24 text-center">Idősáv</th>
+                          {DAYS_OF_WEEK.map((dayName, dIdx) => {
+                            const daySlots = assistantWeeklySlots.filter(s => s.day === dIdx);
+                            const dayMin = daySlots.reduce(
+                              (sum, s) => sum + (ASSISTANT_SLOT_DURATIONS[s.timeSlotIndex] ?? 0), 0
+                            );
+                            return (
+                              <th key={dIdx} className="border border-teal-800 p-2 font-bold text-center">
+                                <div>{dayName}</div>
+                                <div className="text-[10px] font-normal opacity-90">{formatMinutes(dayMin)}</div>
+                              </th>
+                            );
+                          })}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ASSISTANT_TIME_SLOTS.map((ts, tsIdx) => (
+                          <tr key={tsIdx} className={tsIdx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50'}>
+                            <td className="border border-gray-300 dark:border-gray-700 p-2 font-semibold text-gray-600 dark:text-gray-400 text-center bg-gray-100 dark:bg-gray-800 whitespace-nowrap">
+                              {ts}
+                            </td>
+                            {DAYS_OF_WEEK.map((_, dIdx) => {
+                              const cellAssignedSlots = assistantWeeklySlots.filter(
+                                s => s.day === dIdx && s.timeSlotIndex === tsIdx
+                              );
+                              const hasConflict = cellAssignedSlots.some(s => conflicts.has(s.id));
+
+                              return (
+                                <td key={dIdx} className={`border border-gray-300 dark:border-gray-700 p-1.5 text-center align-middle ${
+                                  cellAssignedSlots.length > 0
+                                    ? hasConflict
+                                      ? 'bg-red-100 dark:bg-red-950/40 text-red-900 font-bold'
+                                      : 'bg-teal-50 dark:bg-teal-900/30'
+                                    : ''
+                                }`}>
+                                  {cellAssignedSlots.length > 0 ? (
+                                    <div className="flex flex-wrap justify-center gap-1">
+                                      {cellAssignedSlots.map(slot => (
+                                        <span key={slot.id} className={`px-2.5 py-1 rounded-md text-xs font-bold border shadow-xs inline-block ${
+                                          hasConflict
+                                            ? 'bg-red-200 text-red-900 border-red-400'
+                                            : 'bg-teal-600 text-white border-teal-700'
+                                        }`}>
+                                          {hasConflict && '⚠️ '}
+                                          {locations[slot.locationIndex] ?? `Hely ${slot.locationIndex + 1}`}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <span className="text-gray-300 dark:text-gray-600 font-light">-</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-teal-100 dark:bg-teal-950 font-bold text-teal-900 dark:text-teal-200">
+                          <td className="border border-teal-300 dark:border-teal-800 p-2 text-center">Összesen:</td>
+                          {DAYS_OF_WEEK.map((_, dIdx) => {
+                            const daySlots = assistantWeeklySlots.filter(s => s.day === dIdx);
+                            const dayMin = daySlots.reduce(
+                              (sum, s) => sum + (ASSISTANT_SLOT_DURATIONS[s.timeSlotIndex] ?? 0), 0
+                            );
+                            return (
+                              <td key={dIdx} className="border border-teal-300 dark:border-teal-800 p-2 text-center text-xs">
+                                ⏱ {formatMinutes(dayMin)}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      </tfoot>
+                    </table>
                   </div>
                 );
               })}
             </div>
-            {/* Conflict legend */}
-            {conflicts.size > 0 && (
-              <div className="px-3 py-2 border-t border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 shrink-0">
-                <p className="text-[10px] text-red-700 dark:text-red-300 font-semibold">
-                  ⚠️ Ugyanabban az idősávban egy asszisztens több helyen is szerepel!
-                </p>
-              </div>
-            )}
           </div>
-        </div>
+        )}
+
       </div>
     </div>
   );
