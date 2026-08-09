@@ -677,8 +677,14 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
                             <span className="text-[9px] opacity-70">
                               {daySlots.length}× beosztás
                             </span>
-                            <span className="text-[9px] font-bold opacity-80 bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded">
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-colors ${
+                              totalMinutes >= 480
+                                ? 'bg-emerald-800 text-white shadow-xs ring-1 ring-emerald-500 font-extrabold'
+                                : 'opacity-80 bg-black/10 dark:bg-white/10'
+                            }`}
+                            title={totalMinutes >= 480 ? 'Elérte vagy meghaladta a 8 órát!' : ''}>
                               ⏱ {formatMinutes(totalMinutes)}
+                              {totalMinutes >= 480 && ' ✓'}
                             </span>
                           </div>
                         ) : (
@@ -772,10 +778,17 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
                             const dayMin = daySlots.reduce(
                               (sum, s) => sum + (ASSISTANT_SLOT_DURATIONS[s.timeSlotIndex] ?? 0), 0
                             );
+                            const isFullDay = dayMin >= 480;
                             return (
-                              <th key={dIdx} className="border border-teal-800 p-2 font-bold text-center">
+                              <th key={dIdx} className={`border border-teal-800 p-2 font-bold text-center ${
+                                isFullDay ? 'bg-emerald-900 text-emerald-100' : ''
+                              }`}>
                                 <div>{dayName}</div>
-                                <div className="text-[10px] font-normal opacity-90">{formatMinutes(dayMin)}</div>
+                                <div className={`text-[10px] mt-0.5 px-1 py-0.5 rounded inline-block ${
+                                  isFullDay ? 'bg-emerald-800 text-white font-extrabold shadow-xs' : 'font-normal opacity-90'
+                                }`}>
+                                  {formatMinutes(dayMin)}{isFullDay && ' ✓'}
+                                </div>
                               </th>
                             );
                           })}
@@ -831,9 +844,12 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
                             const dayMin = daySlots.reduce(
                               (sum, s) => sum + (ASSISTANT_SLOT_DURATIONS[s.timeSlotIndex] ?? 0), 0
                             );
+                            const isFullDay = dayMin >= 480;
                             return (
-                              <td key={dIdx} className="border border-teal-300 dark:border-teal-800 p-2 text-center text-xs">
-                                ⏱ {formatMinutes(dayMin)}
+                              <td key={dIdx} className={`border border-teal-300 dark:border-teal-800 p-2 text-center text-xs ${
+                                isFullDay ? 'bg-emerald-800 text-white font-extrabold' : ''
+                              }`}>
+                                ⏱ {formatMinutes(dayMin)}{isFullDay && ' ✓'}
                               </td>
                             );
                           })}
