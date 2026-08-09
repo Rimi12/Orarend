@@ -69,6 +69,7 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
   const [dragOverCell, setDragOverCell] = useState<{ ts: number; loc: number } | null>(null);
   const [conflicts, setConflicts] = useState<Set<string>>(new Set());
   const [selectedAssistantIds, setSelectedAssistantIds] = useState<string[]>([]);
+  const [isCopyMenuOpen, setIsCopyMenuOpen] = useState(false);
 
   // colour map: assistantId → class string
   const colorMap = useRef<Record<string, string>>({});
@@ -163,6 +164,15 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
     const slotId      = e.dataTransfer.getData(DRAG_SLOT);
 
     if (assistantId) {
+      // PREVENT DUPLICATE: skip if this exact (assistant, day, timeslot, location) already exists
+      const alreadyExists = slots.some(
+        s => s.assistantId === assistantId &&
+             s.day === activeDay &&
+             s.timeSlotIndex === ts &&
+             s.locationIndex === loc
+      );
+      if (alreadyExists) return;
+
       // New slot from sidebar
       const newSlot: AssistantSlot = {
         id: genId(),
@@ -175,7 +185,18 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
       setSlots(updated);
       save(updated, locations, selectedAssistantIds);
     } else if (slotId) {
-      // Move existing slot
+      // Move existing slot – also prevent duplicate at destination
+      const movingSlot = slots.find(s => s.id === slotId);
+      if (!movingSlot) return;
+      const alreadyExists = slots.some(
+        s => s.id !== slotId &&
+             s.assistantId === movingSlot.assistantId &&
+             s.day === activeDay &&
+             s.timeSlotIndex === ts &&
+             s.locationIndex === loc
+      );
+      if (alreadyExists) return;
+
       const updated = slots.map(s =>
         s.id === slotId ? { ...s, day: activeDay, timeSlotIndex: ts, locationIndex: loc } : s
       );
@@ -201,6 +222,25 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
       setSlots([]);
       save([], locations, selectedAssistantIds);
     }
+  };
+
+  // ── Copy active day's slots to another day ─────────────────────────────────
+  const handleCopyDayTo = (targetDay: number) => {
+    setIsCopyMenuOpen(false);
+    if (targetDay === activeDay) return;
+    // Get current day's slots
+    const sourceDaySlots = slots.filter(s => s.day === activeDay);
+    if (sourceDaySlots.length === 0) return;
+    // Remove existing slots for target day, then add copies
+    const withoutTarget = slots.filter(s => s.day !== targetDay);
+    const copies: AssistantSlot[] = sourceDaySlots.map(s => ({
+      ...s,
+      id: genId(),
+      day: targetDay,
+    }));
+    const updated = [...withoutTarget, ...copies];
+    setSlots(updated);
+    save(updated, locations, selectedAssistantIds);
   };
 
   // ── Location management ────────────────────────────────────────────────────
@@ -275,6 +315,35 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
               title="Helyszínek szerkesztése">
               ✏️ Helyszínek
             </button>
+            {/* ── Copy day button with dropdown ── */}
+            <div className="relative">
+              <button
+                onClick={() => setIsCopyMenuOpen(v => !v)}
+                disabled={slots.filter(s => s.day === activeDay).length === 0}
+                className="px-3 py-1.5 text-xs font-semibold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 rounded-lg hover:bg-blue-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Nap beosztásának másolása más napra">
+                📋 Másolás napra…
+              </button>
+              {isCopyMenuOpen && (
+                <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-10 overflow-hidden">
+                  {DAYS_OF_WEEK.map((dayName, dIdx) => (
+                    dIdx === activeDay ? null : (
+                      <button
+                        key={dIdx}
+                        onClick={() => handleCopyDayTo(dIdx)}
+                        className="block w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors">
+                        → {dayName} (felülírja)
+                      </button>
+                    )
+                  ))}
+                  <button
+                    onClick={() => setIsCopyMenuOpen(false)}
+                    className="block w-full text-left px-4 py-2 text-xs text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 border-t border-gray-100 dark:border-gray-700">
+                    Mégse
+                  </button>
+                </div>
+              )}
+            </div>
             <button onClick={handleClearDay}
               className="px-3 py-1.5 text-xs font-semibold bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 rounded-lg hover:bg-orange-200 transition-colors"
               title="Mai nap beosztásának törlése">
