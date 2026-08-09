@@ -21,6 +21,29 @@ export const DEFAULT_LOCATIONS = [
 
 export const ASSISTANT_SCHEDULE_KEY = 'assistantScheduleState';
 
+// ─── Time helpers ─────────────────────────────────────────────────────────────
+/** Parse 'H.MM' or 'HH.MM' string into total minutes from midnight */
+const parseHM = (t: string): number => {
+  const [h, m] = t.split('.').map(Number);
+  return h * 60 + (m || 0);
+};
+
+/** Duration in minutes for each time slot (matches ASSISTANT_TIME_SLOTS order) */
+export const ASSISTANT_SLOT_DURATIONS: number[] = ASSISTANT_TIME_SLOTS.map(slot => {
+  const [start, end] = slot.split('\u2013'); // '–' en-dash
+  return parseHM(end) - parseHM(start);
+});
+
+/** Format total minutes as 'X ó Y p' (or just 'Y p' if under an hour) */
+const formatMinutes = (total: number): string => {
+  if (total <= 0) return '0 p';
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (h === 0) return `${m} p`;
+  if (m === 0) return `${h} ó`;
+  return `${h} ó ${m} p`;
+};
+
 // ─── Drag data type ────────────────────────────────────────────────────────────
 const DRAG_ASSISTANT = 'application/assistant-id';
 const DRAG_SLOT      = 'application/assistant-slot';
@@ -529,6 +552,12 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
                 const daySlots = slots.filter(s => s.day === activeDay && s.assistantId === assistant.id);
                 const hasConflictToday = daySlots.some(s => conflicts.has(s.id));
 
+                // Calculate total working time from slot durations
+                const totalMinutes = daySlots.reduce(
+                  (sum, s) => sum + (ASSISTANT_SLOT_DURATIONS[s.timeSlotIndex] ?? 0),
+                  0
+                );
+
                 return (
                   <div key={assistant.id}
                        draggable
@@ -536,15 +565,22 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
                        className={`px-2.5 py-2 rounded-lg border font-semibold text-xs cursor-grab active:cursor-grabbing select-none shadow-xs transition-all hover:shadow-md ${colorClass} ${
                          hasConflictToday ? 'ring-2 ring-red-400' : ''
                        }`}
-                       title={hasConflictToday ? '⚠️ Ütközés van ezen a napon!' : 'Húzd a táblára'}>
+                       title={hasConflictToday ? '⚠️ Ütkozés van ezen a napon!' : 'Hüzd a táblára'}>
                     <div className="flex items-center justify-between gap-1">
                       <span className="truncate">{assistant.name}</span>
-                      {hasConflictToday && <span title="Ütközés!">⚠️</span>}
+                      {hasConflictToday && <span title="Ütkozés!">⚠️</span>}
                     </div>
-                    {daySlots.length > 0 && (
-                      <div className="text-[9px] opacity-70 mt-0.5">
-                        {daySlots.length}× beosztva ma
+                    {daySlots.length > 0 ? (
+                      <div className="flex items-center justify-between mt-0.5">
+                        <span className="text-[9px] opacity-70">
+                          {daySlots.length}× beosztás
+                        </span>
+                        <span className="text-[9px] font-bold opacity-80 bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded">
+                          ⏱ {formatMinutes(totalMinutes)}
+                        </span>
                       </div>
+                    ) : (
+                      <div className="text-[9px] opacity-50 mt-0.5">Nincs beosztás</div>
                     )}
                   </div>
                 );
