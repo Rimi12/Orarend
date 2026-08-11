@@ -21,6 +21,7 @@ import { StandbySelectionModal } from './components/StandbySelectionModal.tsx';
 import { GymScheduleModal } from './components/GymScheduleModal.tsx';
 import { AssistantSelectionModal } from './components/AssistantSelectionModal.tsx';
 import { AssistantScheduleModal } from './components/AssistantScheduleModal.tsx';
+import { CloudSyncModal } from './components/CloudSyncModal.tsx';
 import { Header } from './components/Header.tsx';
 import { useAutoScheduler } from './hooks/useAutoScheduler.ts';
 import { AutoSchedulerModal } from './components/AutoSchedulerModal.tsx';
@@ -43,7 +44,8 @@ const Main: React.FC = () => {
     selectedTeacherId, selectedClassId, driveFileId,
     setSelectedTeacherId, setSelectedClassId,
     sortedTeachers, sortedClasses,
-    setTeacherTraveling, setPlacedLessons
+    setTeacherTraveling, setPlacedLessons,
+    roomCode, syncStatus, lastSyncedAt, isSyncModalOpen, setIsSyncModalOpen, setRoomCode, pushToCloud, pullFromCloud
   } = useTimetable();
   
   const [isAvailabilityModalOpen, setIsAvailabilityModalOpen] = useState(false);
@@ -248,6 +250,9 @@ const Main: React.FC = () => {
         onStartAutoSchedule={() => setIsAutoSchedulerOpen(true)}
         onClearClassTimetable={handleClearClassTimetable}
         onClearTeacherTimetable={handleClearTeacherTimetable}
+        onOpenCloudSync={() => setIsSyncModalOpen(true)}
+        syncStatus={syncStatus}
+        roomCode={roomCode}
       />
 
       {googleDrive.authError && (
@@ -414,6 +419,16 @@ const Main: React.FC = () => {
         onClose={() => setIsAssistantScheduleOpen(false)}
         selectedAssistants={selectedAssistants}
         allTeachers={sortedTeachers}
+      />
+
+      <CloudSyncModal
+        isOpen={isSyncModalOpen}
+        onClose={() => setIsSyncModalOpen(false)}
+        syncStatus={syncStatus}
+        lastSyncedAt={lastSyncedAt}
+        onRoomCodeChanged={setRoomCode}
+        onPushLocalToCloud={pushToCloud}
+        onPullCloudToLocal={pullFromCloud}
       />
 
     </div>

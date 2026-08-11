@@ -42,6 +42,11 @@ interface HeaderProps {
   onStartAutoSchedule: () => void;
   onClearClassTimetable?: () => void;
   onClearTeacherTimetable?: () => void;
+  
+  // Cloud Sync
+  onOpenCloudSync?: () => void;
+  syncStatus?: 'connected' | 'syncing' | 'offline' | 'error';
+  roomCode?: string;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -52,14 +57,46 @@ export const Header: React.FC<HeaderProps> = ({
   handleExportForKreta, setIsSettingsModalOpen,
   googleDrive, saveStatus, handleSaveToDrive, handleSaveToFile,
   updateFileRef, handleAllocationUpdateFileChange, handleReset,
-  onStartAutoSchedule, onClearClassTimetable, onClearTeacherTimetable
+  onStartAutoSchedule, onClearClassTimetable, onClearTeacherTimetable,
+  onOpenCloudSync, syncStatus = 'offline', roomCode = 'zoldmezo-2025'
 }) => {
   return (
     <header className="bg-white dark:bg-gray-800 shadow-md rounded-2xl p-4 mb-6 flex flex-wrap items-center justify-between gap-4 no-print">
-      <h1 className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-        Órarend Tervező
-        <span className="text-sm font-normal text-gray-400 dark:text-gray-500 ml-2 align-baseline">v2.0.0</span>
-      </h1>
+      <div className="flex items-center gap-3">
+        <h1 className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+          Órarend Tervező
+          <span className="text-sm font-normal text-gray-400 dark:text-gray-500 ml-2 align-baseline">v2.0.0</span>
+        </h1>
+        {onOpenCloudSync && (
+          <button
+            onClick={onOpenCloudSync}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2 border transition-all ${
+              syncStatus === 'connected'
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-700'
+                : syncStatus === 'syncing'
+                ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300'
+                : 'bg-gray-100 text-gray-700 border-gray-300 dark:bg-gray-700 dark:text-gray-300'
+            }`}
+            title="Élő felhő szinkronizáció beállításai"
+          >
+            <span className="relative flex h-2.5 w-2.5">
+              {syncStatus === 'connected' && (
+                <>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </>
+              )}
+              {syncStatus === 'syncing' && (
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500 animate-pulse"></span>
+              )}
+              {(syncStatus === 'offline' || syncStatus === 'error') && (
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-gray-400"></span>
+              )}
+            </span>
+            <span>☁️ Élő felhő ({roomCode})</span>
+          </button>
+        )}
+      </div>
       <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-4 flex-grow">
         <div className="flex items-center gap-2">
           <button

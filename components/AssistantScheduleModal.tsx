@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import type { Teacher, AssistantSlot, AssistantSchedule } from '../types.ts';
 import { DAYS_OF_WEEK } from '../constants.ts';
 import { PrintIcon } from './icons/PrintIcon.tsx';
+import { getActiveRoomCode, subscribeToCloudDoc, saveToCloudDoc, CLIENT_ID } from '../services/firebaseSync.ts';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -112,7 +113,7 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
     return colorMap.current[id];
   };
 
-  // ── Load from localStorage on open ─────────────────────────────────────────
+  // ── Load from localStorage & Cloud on open ──────────────────────────────────
   useEffect(() => {
     if (!isOpen) return;
     try {
@@ -131,6 +132,21 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
     selectedAssistants.forEach((a, i) => {
       colorMap.current[a.id] = PASTEL_COLORS[i % PASTEL_COLORS.length];
     });
+
+    // Cloud Subscription for Assistant Schedule
+    const roomCode = getActiveRoomCode();
+    const unsubscribe = subscribeToCloudDoc<AssistantSchedule>(
+      `rooms/${roomCode}/assistants/schedule`,
+      (cloudSchedule, updatedBy) => {
+        if (updatedBy !== CLIENT_ID && cloudSchedule) {
+          if (Array.isArray(cloudSchedule.slots)) setSlots(cloudSchedule.slots);
+          if (Array.isArray(cloudSchedule.locations) && cloudSchedule.locations.length) setLocations(cloudSchedule.locations);
+          if (Array.isArray(cloudSchedule.selectedAssistantIds)) setSelectedAssistantIds(cloudSchedule.selectedAssistantIds);
+        }
+      }
+    );
+
+    return () => unsubscribe();
   }, [isOpen, selectedAssistants]);
 
   // Derive current visible assistants
@@ -160,7 +176,7 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
     setConflicts(newConflicts);
   }, [slots]);
 
-  // ── Save to localStorage ────────────────────────────────────────────────────
+  // ── Save to localStorage & Cloud ────────────────────────────────────────────
   const save = useCallback((newSlots: AssistantSlot[], newLocations: string[], newSelectedIds: string[]) => {
     const state: AssistantSchedule = {
       slots: newSlots,
@@ -168,6 +184,11 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
       selectedAssistantIds: newSelectedIds,
     };
     localStorage.setItem(ASSISTANT_SCHEDULE_KEY, JSON.stringify(state));
+
+    const roomCode = getActiveRoomCode();
+    if (roomCode) {
+      saveToCloudDoc(`rooms/${roomCode}/assistants/schedule`, state);
+    }
   }, []);
 
   // ── Drag handlers ───────────────────────────────────────────────────────────

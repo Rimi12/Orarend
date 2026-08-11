@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
 import type { Teacher, Class, Subject, Allocation, PlacedLesson, UnplacedLesson, TimetableCellData, Collision, SavedState, ParsedData, AllocationUpdateSummary, AppHistoryState } from '../types.ts';
 import { TEACHER_COLORS } from '../constants.ts';
+import { getActiveRoomCode, setActiveRoomCode, subscribeToCloudDoc, saveToCloudDoc, CLIENT_ID } from '../services/firebaseSync.ts';
 
 const LOCAL_STORAGE_KEY = 'timetableAppStateV1';
 
@@ -36,6 +37,16 @@ interface TimetableContextType {
   selectedClassId: string | null;
   driveFileId: string | null;
   setPlacedLessons: (placedLessons: PlacedLesson[]) => void;
+  
+  // Cloud Sync
+  roomCode: string;
+  syncStatus: 'connected' | 'syncing' | 'offline' | 'error';
+  lastSyncedAt: Date | null;
+  isSyncModalOpen: boolean;
+  setIsSyncModalOpen: (open: boolean) => void;
+  setRoomCode: (code: string) => void;
+  pushToCloud: () => void;
+  pullFromCloud: () => void;
 }
 
 const TimetableContext = createContext<TimetableContextType | undefined>(undefined);
@@ -57,8 +68,65 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
     const [driveFileId, setDriveFileId] = useState<string | null>(null);
 
+    // ── Cloud Sync State ────────────────────────────────────────────────────────
+    const [roomCode, setRoomCodeState] = useState<string>(getActiveRoomCode());
+    const [syncStatus, setSyncStatus] = useState<'connected' | 'syncing' | 'offline' | 'error'>('offline');
+    const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+    const [isSyncModalOpen, setIsSyncModalOpen] = useState<boolean>(false);
+
+    const setRoomCode = useCallback((newCode: string) => {
+        const sanitized = setActiveRoomCode(newCode);
+        setRoomCodeState(sanitized);
+    }, []);
+
+    // Live Cloud Subscription for Timetable State
+    useEffect(() => {
+        if (!roomCode) return;
+        setSyncStatus('syncing');
+
+        const unsubscribe = subscribeToCloudDoc<AppHistoryState>(
+            `rooms/${roomCode}/timetable/main`,
+            (cloudState, updatedBy) => {
+                setSyncStatus('connected');
+                setLastSyncedAt(new Date());
+                if (updatedBy !== CLIENT_ID && cloudState && Array.isArray(cloudState.teachers)) {
+                    setHistory(prev => {
+                        const newHist = [...prev, cloudState];
+                        return newHist.length > 50 ? newHist.slice(newHist.length - 50) : newHist;
+                    });
+                    setHistoryIndex(prev => prev + 1);
+                    try {
+                        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ ...cloudState, version: '2.0.0' }));
+                    } catch {}
+                }
+            },
+            () => {
+                setSyncStatus('offline');
+            }
+        );
+
+        return () => unsubscribe();
+    }, [roomCode]);
+
     const currentState = history[historyIndex] ?? null;
     const dataLoaded = history.length > 0 && historyIndex > -1;
+
+    const pushToCloud = useCallback(() => {
+        if (!currentState || !roomCode) return;
+        setSyncStatus('syncing');
+        saveToCloudDoc(`rooms/${roomCode}/timetable/main`, currentState).then((success) => {
+            if (success) {
+                setSyncStatus('connected');
+                setLastSyncedAt(new Date());
+            } else {
+                setSyncStatus('offline');
+            }
+        });
+    }, [currentState, roomCode]);
+
+    const pullFromCloud = useCallback(() => {
+        pushToCloud();
+    }, [pushToCloud]);
 
     const sortedTeachers = useMemo(() =>
         currentState ? [...currentState.teachers].sort((a, b) => a.name.localeCompare(b.name, 'hu-HU')) : [],
@@ -76,7 +144,16 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
         setHistory(newHistory);
         setHistoryIndex(newHistory.length - 1);
-    }, [history, historyIndex]);
+
+        if (roomCode) {
+            saveToCloudDoc(`rooms/${roomCode}/timetable/main`, newState).then(success => {
+                if (success) {
+                    setSyncStatus('connected');
+                    setLastSyncedAt(new Date());
+                }
+            });
+        }
+    }, [history, historyIndex, roomCode]);
 
     const undo = useCallback(() => {
         if (historyIndex > 0) {
@@ -453,6 +530,15 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setSelectedClassId,
         setDriveFileId,
         setPlacedLessons,
+        
+        roomCode,
+        syncStatus,
+        lastSyncedAt,
+        isSyncModalOpen,
+        setIsSyncModalOpen,
+        setRoomCode,
+        pushToCloud,
+        pullFromCloud,
     }), [
         dataLoaded, currentState, sortedTeachers, sortedClasses, loadParsedData, getUnplacedLessonsForTeacher,
         addLesson, removeLesson, setPlacedLessons, findClass, findSubject, findTeacher,
@@ -461,7 +547,8 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         loadStateFromStorage, loadState, clearAllData,
         prepareAllocationUpdate, applyAllocationUpdate, undo, redo, canUndo, canRedo,
         selectedTeacherId, selectedClassId, driveFileId,
-        setSelectedTeacherId, setSelectedClassId, setDriveFileId
+        setSelectedTeacherId, setSelectedClassId, setDriveFileId,
+        roomCode, syncStatus, lastSyncedAt, isSyncModalOpen, setRoomCode, pushToCloud, pullFromCloud
     ]);
 
     return (
