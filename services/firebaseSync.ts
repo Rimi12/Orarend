@@ -67,7 +67,15 @@ export const subscribeToCloudDoc = <T>(
   const pollServer = async () => {
     if (!isSubscribed) return;
     try {
-      const res = await fetch(`/api/solve-timetable?room=${encodeURIComponent(room)}&type=${encodeURIComponent(dtype)}`);
+      const res = await fetch('/api/solve-timetable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'fetch',
+          room,
+          type: dtype,
+        }),
+      });
       if (res.ok) {
         const json = await res.json();
         if (json && json.exists && json.data) {

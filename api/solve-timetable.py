@@ -534,40 +534,33 @@ def solve_cp_sat(data):
 
 # Handler for Vercel Serverless Function
 class handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        try:
-            from urllib.parse import parse_qs, urlparse
-            query = parse_qs(urlparse(self.path).query)
-            room = query.get('room', ['default'])[0]
-            dtype = query.get('type', ['main'])[0]
-            
-            filepath = f"/tmp/sync_{room}_{dtype}.json"
-            
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            
-            if os.path.exists(filepath):
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    self.wfile.write(f.read().encode('utf-8'))
-            else:
-                self.wfile.write(json.dumps({"exists": False}).encode('utf-8'))
-        except Exception as e:
-            self.send_response(500)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(json.dumps({"status": "ERROR", "message": str(e)}).encode("utf-8"))
-
     def do_POST(self):
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length)
         try:
             data = json.loads(body.decode("utf-8"))
-            
-            # Check if this is a Cloud Sync request
-            if data.get("action") == "sync":
+            action = data.get("action")
+
+            # 1. Cloud Sync FETCH
+            if action == "fetch":
+                room = data.get("room", "default")
+                dtype = data.get("type", "main")
+                filepath = f"/tmp/sync_{room}_{dtype}.json"
+                
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                
+                if os.path.exists(filepath):
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        self.wfile.write(f.read().encode('utf-8'))
+                else:
+                    self.wfile.write(json.dumps({"exists": False}).encode('utf-8'))
+                return
+
+            # 2. Cloud Sync SAVE
+            if action == "sync":
                 room = data.get("room", "default")
                 dtype = data.get("type", "main")
                 payload = data.get("data")
@@ -587,10 +580,10 @@ class handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
-                self.wfile.write(json.dumps({"status": "ok"}).encode("utf-8"))
+                self.wfile.write(json.dumps({"status": "ok", "_updatedAt": record["_updatedAt"]}).encode("utf-8"))
                 return
 
-            # Otherwise, run timetable solver
+            # 3. Otherwise, run timetable solver
             result = solve_cp_sat(data)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
