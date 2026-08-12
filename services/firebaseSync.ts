@@ -67,7 +67,7 @@ export const subscribeToCloudDoc = <T>(
   const pollServer = async () => {
     if (!isSubscribed) return;
     try {
-      const res = await fetch(`/api/sync?room=${encodeURIComponent(room)}&type=${encodeURIComponent(dtype)}`);
+      const res = await fetch(`/api/solve-timetable?room=${encodeURIComponent(room)}&type=${encodeURIComponent(dtype)}`);
       if (res.ok) {
         const json = await res.json();
         if (json && json.exists && json.data) {
@@ -152,12 +152,13 @@ export const saveToCloudDoc = async <T>(docPath: string, payload: T): Promise<bo
 
   let serverSuccess = false;
 
-  // 2. Post to Vercel Serverless API `/api/sync`
+  // 2. Post to Vercel Serverless API `/api/solve-timetable` with action='sync'
   try {
-    const res = await fetch('/api/sync', {
+    const res = await fetch('/api/solve-timetable', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        action: 'sync',
         room,
         type: dtype,
         data: payload,
