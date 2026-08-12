@@ -6,6 +6,20 @@
       "maxDuration": 60
     }
   },
+  "rewrites": [
+    {
+      "source": "/api/sync",
+      "destination": "/api/sync"
+    },
+    {
+      "source": "/api/solve-timetable",
+      "destination": "/api/solve-timetable.py"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",
