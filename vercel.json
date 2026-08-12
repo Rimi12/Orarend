@@ -4,6 +4,10 @@
     "api/solve-timetable.py": {
       "memory": 1024,
       "maxDuration": 60
+    },
+    "api/sync.py": {
+      "memory": 512,
+      "maxDuration": 10
     }
   },
   "headers": [
