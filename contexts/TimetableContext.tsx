@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
 import type { Teacher, Class, Subject, Allocation, PlacedLesson, UnplacedLesson, TimetableCellData, Collision, SavedState, ParsedData, AllocationUpdateSummary, AppHistoryState } from '../types.ts';
 import { TEACHER_COLORS } from '../constants.ts';
+import { migrateHittanState } from '../utils.ts';
 import { getActiveRoomCode, setActiveRoomCode, subscribeToCloudDoc, saveToCloudDoc, CLIENT_ID } from '../services/firebaseSync.ts';
 
 const LOCAL_STORAGE_KEY = 'timetableAppStateV1';
@@ -90,13 +91,14 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 setSyncStatus('connected');
                 setLastSyncedAt(new Date());
                 if (updatedBy !== CLIENT_ID && cloudState && Array.isArray(cloudState.teachers)) {
+                    const migrated = migrateHittanState(cloudState);
                     setHistory(prev => {
-                        const newHist = [...prev, cloudState];
+                        const newHist = [...prev, migrated];
                         return newHist.length > 50 ? newHist.slice(newHist.length - 50) : newHist;
                     });
                     setHistoryIndex(prev => prev + 1);
                     try {
-                        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ ...cloudState, version: '2.0.0' }));
+                        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ ...migrated, version: '2.0.0' }));
                     } catch {}
                 }
             },
@@ -137,8 +139,9 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     [currentState?.classes]);
 
     const pushNewState = useCallback((newState: AppHistoryState) => {
+        const migratedState = migrateHittanState(newState);
         let newHistory = history.slice(0, historyIndex + 1);
-        newHistory.push(newState);
+        newHistory.push(migratedState);
         if (newHistory.length > 50) {
             newHistory = newHistory.slice(newHistory.length - 50);
         }
@@ -146,7 +149,7 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setHistoryIndex(newHistory.length - 1);
 
         if (roomCode) {
-            saveToCloudDoc(`rooms/${roomCode}/timetable/main`, newState).then(success => {
+            saveToCloudDoc(`rooms/${roomCode}/timetable/main`, migratedState).then(success => {
                 if (success) {
                     setSyncStatus('connected');
                     setLastSyncedAt(new Date());
@@ -171,19 +174,32 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const canRedo = historyIndex < history.length - 1;
     
     const loadParsedData = useCallback((data: ParsedData) => {
-        const initialState: AppHistoryState = {
+        const initialState: AppHistoryState = migrateHittanState({
             teachers: data.teachers,
             classes: data.classes,
             subjects: data.subjects,
             allocations: data.allocations,
             placedLessons: [],
-        };
-        setSelectedTeacherId(data.teachers[0]?.id || null);
-        setSelectedClassId(data.classes[0]?.id || null);
+        });
+        setSelectedTeacherId(initialState.teachers[0]?.id || null);
+        setSelectedClassId(initialState.classes[0]?.id || null);
         setDriveFileId(null);
         setHistory([initialState]);
         setHistoryIndex(0);
-    }, []);
+        try {
+            const stateToSave: SavedState = {
+                ...initialState,
+                version: '2.0.0',
+                selectedTeacherId: initialState.teachers[0]?.id || null,
+                selectedClassId: initialState.classes[0]?.id || null,
+                driveFileId: null,
+            };
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stateToSave));
+        } catch {}
+        if (roomCode) {
+            saveToCloudDoc(`rooms/${roomCode}/timetable/main`, initialState);
+        }
+    }, [roomCode]);
 
     const findClass = useCallback((id: string) => currentState?.classes.find(c => c.id === id), [currentState]);
     const findSubject = useCallback((id: string) => currentState?.subjects.find(s => s.id === id), [currentState]);
@@ -345,12 +361,37 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 placedLessons: savedState.placedLessons || [],
             };
 
+            const migratedState = migrateHittanState(completeState);
+            setHistory([migratedState]);
+            setHistoryIndex(0);
+
+            let targetClassId = savedState.selectedClassId || null;
+            if (targetClassId && !migratedState.classes.some(c => c.id === targetClassId)) {
+                const oldClass = (savedState.classes || []).find(c => c.id === targetClassId);
+                if (oldClass) {
+                    const normName = normalizeClassName(oldClass.name);
+                    const match = migratedState.classes.find(c => c.name === normName);
+                    if (match) targetClassId = match.id;
+                }
+            }
+            if (!targetClassId || !migratedState.classes.some(c => c.id === targetClassId)) {
+                targetClassId = migratedState.classes[0]?.id || null;
+            }
+
             setSelectedTeacherId(savedState.selectedTeacherId || (migratedTeachers[0]?.id || null));
-            setSelectedClassId(savedState.selectedClassId || (savedState.classes?.[0]?.id || null));
+            setSelectedClassId(targetClassId);
             setDriveFileId(savedState.driveFileId || null);
 
-            setHistory([completeState]);
-            setHistoryIndex(0);
+            try {
+                const stateToSave: SavedState = {
+                    ...migratedState,
+                    version: '2.0.0',
+                    selectedTeacherId: savedState.selectedTeacherId || (migratedTeachers[0]?.id || null),
+                    selectedClassId: targetClassId,
+                    driveFileId: savedState.driveFileId || null,
+                };
+                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stateToSave));
+            } catch {}
         } catch (error) {
             console.error("Hiba az állapot betöltése során:", error);
             alert(`Hiba történt az állapot betöltése közben. ${error instanceof Error ? error.message : ''}`);
@@ -431,8 +472,8 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         };
       }).filter((a): a is Allocation => a !== null);
       
-      const currentAllocationsMap = new Map(allocations.map(a => [`${a.teacherId}-${a.classId}-${a.subjectId}`, a]));
-      const newAllocationsMap = new Map(newAllocationsWithStableIds.map(a => [`${a.teacherId}-${a.classId}-${a.subjectId}`, a]));
+      const currentAllocationsMap = new Map<string, Allocation>(allocations.map(a => [`${a.teacherId}-${a.classId}-${a.subjectId}`, a]));
+      const newAllocationsMap = new Map<string, Allocation>(newAllocationsWithStableIds.map(a => [`${a.teacherId}-${a.classId}-${a.subjectId}`, a]));
 
       summary.removedAllocations = allocations.filter(a => !newAllocationsMap.has(`${a.teacherId}-${a.classId}-${a.subjectId}`));
       summary.newAllocations = newAllocationsWithStableIds.filter(a => !currentAllocationsMap.has(`${a.teacherId}-${a.classId}-${a.subjectId}`));

@@ -46,7 +46,7 @@ const localFileSaverPlugin = () => ({
           const tempInputPath = path.join(__dirname, '.temp_solve_input.json');
           try {
             fs.writeFileSync(tempInputPath, body);
-            const pythonScript = path.join(__dirname, 'api/solve_timetable.py');
+            const pythonScript = path.join(__dirname, 'api/solve-timetable.py');
             const output = execSync(`python3 "${pythonScript}" "${tempInputPath}"`, { encoding: 'utf-8' });
             
             if (fs.existsSync(tempInputPath)) fs.unlinkSync(tempInputPath);
