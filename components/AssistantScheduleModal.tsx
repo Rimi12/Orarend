@@ -1139,59 +1139,81 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
                     </thead>
                     <tbody>
                       {timeSlots.map((ts, tsIdx) => {
-                        const standardDuration = calculateSlotDuration(ts);
-                        const rowMinHeight = Math.max(50, Math.round((standardDuration / 45) * 54));
+                        const currentParts = ts.split(/[\u2013\u2014\-]/);
+                        const currentTsStart = parseHM(currentParts[0]);
+                        const currentTsEnd = parseHM(currentParts[1]);
 
                         return (
-                          <tr key={tsIdx} className={tsIdx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50'}>
-                            <td className="border border-gray-300 dark:border-gray-600 p-2 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap text-center bg-teal-50/80 dark:bg-teal-950/40"
-                                style={{ minHeight: `${rowMinHeight}px` }}>
-                              <div className="font-bold text-xs text-teal-950 dark:text-teal-200">{ts}</div>
-                              <div className="text-[10px] font-semibold text-teal-700 dark:text-teal-400 mt-0.5 bg-teal-100/70 dark:bg-teal-900/50 px-1.5 py-0.5 rounded-full inline-block">
-                                ⏱ {standardDuration} perc
-                              </div>
+                          <tr key={tsIdx} className={tsIdx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50/60 dark:bg-gray-800/40'}>
+                            {/* Left fixed time slot header */}
+                            <td className="border border-gray-300 dark:border-gray-600 p-2 font-bold text-gray-800 dark:text-gray-200 whitespace-nowrap text-center bg-gray-100 dark:bg-gray-800 text-xs w-24">
+                              {ts}
                             </td>
+
                             {locations.map((_, locIdx) => {
                               const cellSlots = getCellSlots(tsIdx, locIdx);
                               const isDragOver = dragOverCell?.ts === tsIdx && dragOverCell?.loc === locIdx;
                               const hasConflict = cellSlots.some(s => conflicts.has(s.id));
+
+                              // Find any slot from previous time slots that extends into this time slot
+                              const hangingSlots = slots.filter(s => {
+                                if (s.day !== activeDay || s.locationIndex !== locIdx || s.timeSlotIndex >= tsIdx) return false;
+                                if (!s.customStartTime || !s.customEndTime) return false;
+                                const sStart = parseHM(s.customStartTime);
+                                const sEnd = parseHM(s.customEndTime);
+                                return sStart < currentTsEnd && sEnd > currentTsStart;
+                              });
 
                               return (
                                 <td key={locIdx}
                                     onDragOver={e => handleDragOver(e, tsIdx, locIdx)}
                                     onDragLeave={handleDragLeave}
                                     onDrop={e => handleDrop(e, tsIdx, locIdx)}
-                                    className={`border border-gray-300 dark:border-gray-600 p-1 align-top transition-colors cursor-default ${
+                                    className={`border border-gray-300 dark:border-gray-600 p-1.5 align-top transition-colors cursor-default ${
                                       isDragOver
                                         ? 'bg-teal-100 dark:bg-teal-800/40 ring-2 ring-teal-400'
                                         : hasConflict
                                         ? 'bg-red-50 dark:bg-red-950/30'
                                         : ''
                                     }`}
-                                    style={{ minHeight: `${rowMinHeight}px`, verticalAlign: 'top' }}>
+                                    style={{ minHeight: '48px', verticalAlign: 'top' }}>
                                   <div className="flex flex-col gap-1.5">
+                                    {/* Direct assigned slots in this cell */}
                                     {cellSlots.map(slot => {
                                       const displayName = getAssistantName(slot.assistantId);
                                       const isConflict = conflicts.has(slot.id);
                                       const colorClass = getColor(slot.assistantId);
                                       const hasCustomTime = !!(slot.customStartTime && slot.customEndTime);
                                       const slotMinutes = getSlotWorkingMinutes(slot, timeSlots);
-                                      const cardHeightPx = Math.max(42, Math.min(300, Math.round((slotMinutes / 45) * 50)));
+
+                                      // Check which next time slots this custom slot extends into
+                                      const sEnd = parseHM(slot.customEndTime);
+                                      const extendedInto: string[] = [];
+                                      if (hasCustomTime && sEnd > 0) {
+                                        timeSlots.forEach((nextTs, nextIdx) => {
+                                          if (nextIdx > tsIdx) {
+                                            const nParts = nextTs.split(/[\u2013\u2014\-]/);
+                                            const nStart = parseHM(nParts[0]);
+                                            if (sEnd > nStart) {
+                                              extendedInto.push(nextTs);
+                                            }
+                                          }
+                                        });
+                                      }
 
                                       return (
                                         <div key={slot.id}
                                              draggable
                                              onDragStart={e => handleDragStartSlot(e, slot.id)}
                                              onClick={() => setSelectedSlotForDetail(slot)}
-                                             style={{ minHeight: `${cardHeightPx}px` }}
-                                             className={`flex flex-col justify-between p-1.5 rounded-lg text-[11px] font-semibold border cursor-pointer active:cursor-grabbing hover:ring-2 hover:ring-blue-400 shadow-xs transition-all ${
+                                             className={`flex flex-col justify-between p-2 rounded-xl text-xs font-semibold border cursor-pointer active:cursor-grabbing hover:ring-2 hover:ring-blue-500 shadow-sm transition-all ${
                                                isConflict
                                                  ? 'bg-red-200 text-red-900 border-red-400 dark:bg-red-800/60 dark:text-red-200'
                                                  : colorClass
-                                             } ${hasCustomTime ? 'border-l-4 border-l-amber-500 ring-1 ring-amber-400/50' : ''}`}
+                                             } ${hasCustomTime ? 'ring-2 ring-amber-400/80 border-amber-400 shadow-md' : ''}`}
                                              title={isConflict ? '⚠️ Ütközés! Ez az asszisztens már máshol is be van osztva.' : 'Kattints az egyedi idő vagy részletek módosításához'}>
                                           <div className="flex items-center justify-between gap-1">
-                                            <span className="truncate font-bold">
+                                            <span className="truncate font-extrabold text-xs">
                                               {isConflict && '⚠️ '}
                                               {displayName}
                                             </span>
@@ -1200,32 +1222,55 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
                                                 e.stopPropagation();
                                                 handleRemoveSlot(slot.id);
                                               }}
-                                              className="shrink-0 text-current opacity-60 hover:opacity-100 leading-none no-print font-bold text-sm px-0.5"
+                                              className="shrink-0 text-current opacity-60 hover:opacity-100 leading-none no-print font-bold text-base px-0.5"
                                               title="Törlés">
                                               ×
                                             </button>
                                           </div>
 
-                                          {/* Time interval and Duration badge */}
-                                          <div className="mt-1 pt-1 border-t border-black/10 dark:border-white/10 flex flex-col gap-0.5">
-                                            <div className={`flex items-center justify-between gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                                              hasCustomTime
-                                                ? 'bg-amber-400/30 text-amber-950 dark:text-amber-200 border border-amber-500/40'
-                                                : 'bg-black/10 dark:bg-white/10'
-                                            }`}>
-                                              <span>
-                                                ⏰ {hasCustomTime ? `${slot.customStartTime}–${slot.customEndTime}` : ts}
+                                          {/* Time Box: Crisp, high-contrast, fully readable */}
+                                          <div className="mt-1.5 bg-white/95 dark:bg-gray-900/95 text-gray-900 dark:text-gray-100 rounded-lg p-1.5 border border-black/10 dark:border-white/10 shadow-xs flex flex-col gap-0.5">
+                                            <div className="flex items-center justify-between gap-1 text-[11px] font-bold">
+                                              <span className="text-gray-900 dark:text-gray-100">
+                                                ⏰ {hasCustomTime ? `${slot.customStartTime} – ${slot.customEndTime}` : ts}
                                               </span>
-                                              <span className="text-[9px] font-extrabold px-1 bg-black/15 dark:bg-white/20 rounded">
-                                                {slotMinutes} perc
+                                              <span className="bg-blue-100 dark:bg-blue-900/60 text-blue-900 dark:text-blue-200 px-1.5 py-0.5 rounded text-[10px] font-extrabold">
+                                                {slotMinutes} p
                                               </span>
                                             </div>
+
+                                            {/* Belógás jelző a következő sávokba */}
+                                            {extendedInto.length > 0 && (
+                                              <div className="text-[10px] text-amber-800 dark:text-amber-300 font-bold mt-0.5 bg-amber-100/70 dark:bg-amber-950/60 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                                <span>⬇️ Belóg: {extendedInto[0]} sávba is</span>
+                                              </div>
+                                            )}
+
                                             {slot.note && (
-                                              <span className="text-[9px] font-normal italic opacity-90 truncate">
+                                              <span className="text-[10px] text-gray-600 dark:text-gray-400 font-normal italic truncate mt-0.5">
                                                 📝 {slot.note}
                                               </span>
                                             )}
                                           </div>
+                                        </div>
+                                      );
+                                    })}
+
+                                    {/* Hanging indicators from previous time slots */}
+                                    {hangingSlots.map(hSlot => {
+                                      const hName = getAssistantName(hSlot.assistantId);
+                                      return (
+                                        <div key={`hang-${hSlot.id}-${tsIdx}`}
+                                             onClick={() => setSelectedSlotForDetail(hSlot)}
+                                             className="p-1.5 rounded-lg border-2 border-dashed border-amber-400 bg-amber-50/80 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 text-xs font-semibold cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-all flex items-center justify-between shadow-2xs"
+                                             title="Ez a beosztás az előző sávból nyúlik át ide. Kattints a szerkesztéshez!">
+                                          <div className="flex items-center gap-1 truncate">
+                                            <span className="text-amber-600 font-bold">↳</span>
+                                            <span className="font-bold truncate text-[11px]">{hName}</span>
+                                          </div>
+                                          <span className="text-[10px] font-mono font-extrabold bg-amber-200/80 dark:bg-amber-900/70 px-1 py-0.5 rounded text-amber-950 dark:text-amber-100">
+                                            – {hSlot.customEndTime}-ig
+                                          </span>
                                         </div>
                                       );
                                     })}
@@ -1465,15 +1510,14 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
           </thead>
           <tbody>
             {timeSlots.map((ts, tsIdx) => {
-              const standardDuration = calculateSlotDuration(ts);
-              const rowMinHeight = Math.max(46, Math.round((standardDuration / 45) * 50));
+              const currentParts = ts.split(/[\u2013\u2014\-]/);
+              const currentTsStart = parseHM(currentParts[0]);
+              const currentTsEnd = parseHM(currentParts[1]);
 
               return (
-                <tr key={tsIdx} className={tsIdx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50'}>
-                  <td className="border border-gray-300 dark:border-gray-700 p-2 font-semibold text-gray-700 dark:text-gray-300 text-center bg-gray-100 dark:bg-gray-800 whitespace-nowrap"
-                      style={{ minHeight: `${rowMinHeight}px` }}>
-                    <div className="font-bold text-xs">{ts}</div>
-                    <div className="text-[10px] text-gray-500 font-medium mt-0.5">⏱ {standardDuration} perc</div>
+                <tr key={tsIdx} className={tsIdx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50/60 dark:bg-gray-800/40'}>
+                  <td className="border border-gray-300 dark:border-gray-700 p-2 font-bold text-gray-800 dark:text-gray-200 text-center bg-gray-100 dark:bg-gray-800 whitespace-nowrap w-24 text-xs">
+                    {ts}
                   </td>
                   {DAYS_OF_WEEK.map((_, dIdx) => {
                     const cellAssignedSlots = assistantWeeklySlots.filter(
@@ -1481,45 +1525,66 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
                     );
                     const hasConflict = cellAssignedSlots.some(s => conflicts.has(s.id));
 
+                    // Hanging from previous time slots on this day
+                    const hangingSlots = assistantWeeklySlots.filter(s => {
+                      if (s.day !== dIdx || s.timeSlotIndex >= tsIdx) return false;
+                      if (!s.customStartTime || !s.customEndTime) return false;
+                      const sStart = parseHM(s.customStartTime);
+                      const sEnd = parseHM(s.customEndTime);
+                      return sStart < currentTsEnd && sEnd > currentTsStart;
+                    });
+
+                    const hasAnyContent = cellAssignedSlots.length > 0 || hangingSlots.length > 0;
+
                     return (
-                      <td key={dIdx} className={`border border-gray-300 dark:border-gray-700 p-1.5 text-center align-middle ${
-                        cellAssignedSlots.length > 0
+                      <td key={dIdx} className={`border border-gray-300 dark:border-gray-700 p-1.5 text-center align-top ${
+                        hasAnyContent
                           ? hasConflict
-                            ? 'bg-red-100 dark:bg-red-950/40 text-red-900 font-bold'
-                            : 'bg-teal-50 dark:bg-teal-900/30'
+                            ? 'bg-red-50 dark:bg-red-950/40'
+                            : 'bg-teal-50/50 dark:bg-teal-950/20'
                           : ''
-                      }`} style={{ minHeight: `${rowMinHeight}px` }}>
-                        {cellAssignedSlots.length > 0 ? (
-                          <div className="flex flex-wrap justify-center gap-1">
+                      }`} style={{ minHeight: '48px' }}>
+                        {hasAnyContent ? (
+                          <div className="flex flex-col gap-1.5">
                             {cellAssignedSlots.map(slot => {
                               const slotMin = getSlotWorkingMinutes(slot, timeSlots);
                               const hasCustom = !!(slot.customStartTime && slot.customEndTime);
-                              const cardHeight = Math.max(38, Math.min(240, Math.round((slotMin / 45) * 44)));
 
                               return (
                                 <div key={slot.id}
-                                     style={{ minHeight: `${cardHeight}px` }}
-                                     className={`flex flex-col items-center justify-between p-1.5 rounded-lg border shadow-xs text-xs font-semibold ${
+                                     className={`flex flex-col p-2 rounded-xl border shadow-xs text-xs font-semibold ${
                                        hasConflict
                                          ? 'bg-red-200 text-red-900 border-red-400'
                                          : 'bg-teal-600 text-white border-teal-700'
-                                     } ${hasCustom ? 'ring-2 ring-amber-400' : ''}`}>
-                                  <span className="font-bold">
+                                     } ${hasCustom ? 'ring-2 ring-amber-400 shadow-md' : ''}`}>
+                                  <span className="font-extrabold text-xs">
                                     {hasConflict && '⚠️ '}
                                     {locations[slot.locationIndex] ?? `Hely ${slot.locationIndex + 1}`}
                                   </span>
-                                  <div className="mt-1 flex items-center gap-1 text-[10px] bg-black/20 px-1.5 py-0.5 rounded font-bold">
-                                    <span>⏰ {hasCustom ? `${slot.customStartTime}–${slot.customEndTime}` : ts}</span>
-                                    <span>({slotMin}p)</span>
+
+                                  {/* Crisp Time Badge */}
+                                  <div className="mt-1 bg-white/95 text-gray-900 rounded-lg p-1 text-[11px] font-bold shadow-xs flex items-center justify-between gap-1">
+                                    <span>⏰ {hasCustom ? `${slot.customStartTime} – ${slot.customEndTime}` : ts}</span>
+                                    <span className="bg-teal-100 text-teal-900 px-1 py-0.5 rounded text-[10px] font-extrabold">{slotMin}p</span>
                                   </div>
+
                                   {slot.note && (
-                                    <span className="text-[9px] italic opacity-90 mt-0.5">
+                                    <span className="text-[10px] italic text-teal-100 mt-0.5 truncate">
                                       📝 {slot.note}
                                     </span>
                                   )}
                                 </div>
                               );
                             })}
+
+                            {/* Hanging indicators */}
+                            {hangingSlots.map(hSlot => (
+                              <div key={`ind-hang-${hSlot.id}-${tsIdx}`}
+                                   className="p-1 rounded-lg border-2 border-dashed border-amber-400 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 text-[11px] font-semibold flex items-center justify-between">
+                                <span className="truncate">↳ {locations[hSlot.locationIndex]} (folytatás)</span>
+                                <span className="text-[10px] font-mono font-bold bg-amber-200 dark:bg-amber-900 px-1 rounded">– {hSlot.customEndTime}-ig</span>
+                              </div>
+                            ))}
                           </div>
                         ) : (
                           <span className="text-gray-300 dark:text-gray-600 font-light">-</span>
