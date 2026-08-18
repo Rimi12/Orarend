@@ -1,0 +1,110 @@
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 0.5cm;
+  }
+
+  /* A nyomtatási színhelyesség biztosítása */
+  body {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  /* Minden elrejtése, kivéve a nyomtatási konténert */
+  body > *:not(#print-container) {
+    display: none !important;
+  }
+  
+  #print-container {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    background: white !important;
+    color: black !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  #print-container > div {
+    background: white !important;
+    color: black !important;
+    padding: 0 !important;
+    width: 100% !important;
+  }
+
+  #print-container h1, #print-container h2, #print-container h3 {
+    text-align: center !important;
+    color: black !important;
+    margin: 0 0 6px 0 !important;
+    font-size: 13pt !important;
+  }
+
+  /* A táblázat automatikus laphoz méretezése */
+  #print-container table {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+    color: black !important;
+    margin-top: 4px !important;
+    font-size: 7.5pt !important;
+  }
+
+  #print-container th,
+  #print-container td {
+    border: 1px solid #333 !important;
+    padding: 2px 1px !important;
+    text-align: center !important;
+    vertical-align: middle !important;
+    min-width: 0 !important;
+    word-break: break-word !important;
+    overflow: hidden !important;
+  }
+
+  #print-container th {
+    font-weight: bold !important;
+    background-color: #E0E0E0 !important;
+    color: black !important;
+    font-size: 7.5pt !important;
+  }
+
+  #print-container td {
+    font-size: 7.5pt !important;
+    line-height: 1.1 !important;
+  }
+
+  #print-container tfoot td {
+    font-weight: bold !important;
+    background-color: #F0F0F0 !important;
+  }
+
+  /* Kártyák és elemek tömörítése nyomtatáskor */
+  #print-container .flex-col {
+    gap: 1px !important;
+  }
+
+  #print-container div[draggable] {
+    padding: 1px 2px !important;
+    font-size: 7pt !important;
+    border-width: 1px !important;
+  }
+
+  /* Interaktív elemek és no-print osztály elrejtése */
+  #print-container button,
+  #print-container .no-print,
+  .no-print {
+    display: none !important;
+  }
+
+  /* Oldaltörés asszisztensek között */
+  .page-break-after,
+  #print-container .page-break-after {
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+}

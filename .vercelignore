@@ -1,0 +1,8 @@
+node_modules
+.git
+.github
+dist
+.temp_mediaStorage
+scratch
+2026
+.temp_solve_input.json
