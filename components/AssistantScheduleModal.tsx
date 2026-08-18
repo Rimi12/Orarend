@@ -25,12 +25,44 @@ export const ASSISTANT_SCHEDULE_KEY = 'assistantScheduleState';
 
 // ─── Time helpers ─────────────────────────────────────────────────────────────
 
-/** Parse 'H.MM', 'HH.MM', 'H:MM', or 'HH:MM' string into total minutes from midnight */
-export const parseHM = (t: string): number => {
+/** Parse 'H:MM', 'H.MM', 'H MM', 'HH:MM', or raw minutes into total minutes from midnight */
+export const parseHM = (t: string | undefined | null): number => {
   if (!t) return 0;
-  const clean = t.trim().replace(':', '.');
-  const [h, m] = clean.split('.').map(Number);
-  return (h || 0) * 60 + (m || 0);
+  const str = String(t).trim();
+  if (!str) return 0;
+
+  // Match H:MM or H.MM or H MM (with optional spaces around colon/dot)
+  const match = str.match(/^(\d{1,2})[\s.:-]+(\d{1,2})$/);
+  if (match) {
+    const h = parseInt(match[1], 10);
+    const m = parseInt(match[2], 10);
+    return (h || 0) * 60 + (m || 0);
+  }
+
+  // If just a number like "8" or "830"
+  if (/^\d+$/.test(str)) {
+    if (str.length <= 2) return parseInt(str, 10) * 60;
+    if (str.length === 3) {
+      return parseInt(str.slice(0, 1), 10) * 60 + parseInt(str.slice(1), 10);
+    }
+    if (str.length === 4) {
+      return parseInt(str.slice(0, 2), 10) * 60 + parseInt(str.slice(2), 10);
+    }
+  }
+
+  // Fallback: extract all digits
+  const clean = str.replace(/[^0-9]/g, '.');
+  const parts = clean.split('.').filter(Boolean).map(Number);
+  if (parts.length >= 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 1) return parts[0] * 60;
+  return 0;
+};
+
+/** Format total minutes into standard 'HH:MM' 24-hour string */
+export const formatTimeHM = (totalMin: number): string => {
+  const h = Math.floor(totalMin / 60) % 24;
+  const m = totalMin % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 };
 
 /** Calculate duration in minutes for a time slot string e.g. "7.00–7.30" or "07:00 - 08:00" */
@@ -687,10 +719,14 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
   const handleSaveSlotDetail = (slotId: string, customStart: string, customEnd: string, noteText: string) => {
     const updated = slots.map(s => {
       if (s.id === slotId) {
+        const sMin = parseHM(customStart);
+        const eMin = parseHM(customEnd);
+        const isCustom = sMin > 0 && eMin > sMin;
         return {
           ...s,
-          customStartTime: customStart.trim() || undefined,
-          customEndTime: customEnd.trim() || undefined,
+          customStartTime: isCustom ? formatTimeHM(sMin) : undefined,
+          customEndTime: isCustom ? formatTimeHM(eMin) : undefined,
+          customDurationMinutes: isCustom ? (eMin - sMin) : undefined,
           note: noteText.trim() || undefined,
         };
       }
@@ -1540,22 +1576,24 @@ const SlotDetailModal: React.FC<SlotDetailModalProps> = ({
   onSave,
   onDelete,
 }) => {
-  const [customStart, setCustomStart] = useState(slot.customStartTime || '');
-  const [customEnd, setCustomEnd] = useState(slot.customEndTime || '');
-  const [note, setNote] = useState(slot.note || '');
-
-  // Parse default start from standardTimeSlot
-  const defaultSlotStart = useMemo(() => {
-    const parts = standardTimeSlot.split(/[-–—]/);
-    return parts[0]?.trim().replace('.', ':') || '07:30';
+  // Parse default start & end from standardTimeSlot
+  const [defaultStart, defaultEnd] = useMemo(() => {
+    const parts = standardTimeSlot.split(/[\u2013\u2014\-]/);
+    const s = parts[0]?.trim() || '07:30';
+    const e = parts[1]?.trim() || '08:15';
+    return [formatTimeHM(parseHM(s)), formatTimeHM(parseHM(e))];
   }, [standardTimeSlot]);
+
+  const [customStart, setCustomStart] = useState(slot.customStartTime || defaultStart);
+  const [customEnd, setCustomEnd] = useState(slot.customEndTime || defaultEnd);
+  const [note, setNote] = useState(slot.note || '');
 
   // Compute live duration
   const currentDurationMin = useMemo(() => {
-    if (customStart && customEnd) {
-      const s = parseHM(customStart);
-      const e = parseHM(customEnd);
-      if (e > s) return e - s;
+    const s = parseHM(customStart);
+    const e = parseHM(customEnd);
+    if (s > 0 && e > s) {
+      return e - s;
     }
     return calculateSlotDuration(standardTimeSlot);
   }, [customStart, customEnd, standardTimeSlot]);
@@ -1564,19 +1602,27 @@ const SlotDetailModal: React.FC<SlotDetailModalProps> = ({
 
   // Helper to apply duration preset
   const applyPreset = (minutes: number) => {
-    const startStr = customStart || defaultSlotStart;
-    const startMin = parseHM(startStr);
+    const startMin = parseHM(customStart) || parseHM(defaultStart);
     const endMin = startMin + minutes;
-    const endH = Math.floor(endMin / 60) % 24;
-    const endM = endMin % 60;
-    const endStr = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
-    setCustomStart(startStr);
-    setCustomEnd(endStr);
+    setCustomStart(formatTimeHM(startMin));
+    setCustomEnd(formatTimeHM(endMin));
   };
 
   const clearCustomTime = () => {
-    setCustomStart('');
-    setCustomEnd('');
+    setCustomStart(defaultStart);
+    setCustomEnd(defaultEnd);
+  };
+
+  const handleFormSave = () => {
+    const sMin = parseHM(customStart);
+    const eMin = parseHM(customEnd);
+    const isCustom = sMin > 0 && eMin > sMin && (formatTimeHM(sMin) !== defaultStart || formatTimeHM(eMin) !== defaultEnd);
+    onSave(
+      slot.id,
+      isCustom ? formatTimeHM(sMin) : '',
+      isCustom ? formatTimeHM(eMin) : '',
+      note
+    );
   };
 
   return (
@@ -1584,19 +1630,19 @@ const SlotDetailModal: React.FC<SlotDetailModalProps> = ({
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-md overflow-hidden flex flex-col"
            onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-850">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-850">
           <div className="flex items-center gap-2">
             <span className="text-xl">⏱️</span>
             <div>
-              <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+              <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">
                 Beosztási munkaidő és idősáv beállítása
               </h3>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-600 dark:text-gray-400">
                 {assistantName} • {locationName}
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl font-bold">
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl font-bold">
             &times;
           </button>
         </div>
@@ -1629,7 +1675,7 @@ const SlotDetailModal: React.FC<SlotDetailModalProps> = ({
                   type="button"
                   onClick={() => applyPreset(p.min)}
                   className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-all ${
-                    currentDurationMin === p.min && customStart && customEnd
+                    currentDurationMin === p.min
                       ? 'bg-blue-600 text-white border-blue-700 shadow-xs'
                       : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:bg-blue-50 dark:hover:bg-blue-900/30'
                   }`}
@@ -1637,15 +1683,13 @@ const SlotDetailModal: React.FC<SlotDetailModalProps> = ({
                   {p.label}
                 </button>
               ))}
-              {(customStart || customEnd) && (
-                <button
-                  type="button"
-                  onClick={clearCustomTime}
-                  className="px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"
-                >
-                  Visszaállítás alapra
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={clearCustomTime}
+                className="px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"
+              >
+                Visszaállítás alapra
+              </button>
             </div>
           </div>
 
@@ -1658,7 +1702,7 @@ const SlotDetailModal: React.FC<SlotDetailModalProps> = ({
                 <span className="text-[10px] text-gray-500">Kezdés (pl. 07:30)</span>
                 <input
                   type="text"
-                  placeholder={defaultSlotStart}
+                  placeholder={defaultStart}
                   value={customStart}
                   onChange={e => setCustomStart(e.target.value)}
                   className="w-full px-3 py-1.5 text-xs bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white font-mono"
@@ -1668,7 +1712,7 @@ const SlotDetailModal: React.FC<SlotDetailModalProps> = ({
                 <span className="text-[10px] text-gray-500">Végzés (pl. 09:30)</span>
                 <input
                   type="text"
-                  placeholder="08:15"
+                  placeholder={defaultEnd}
                   value={customEnd}
                   onChange={e => setCustomEnd(e.target.value)}
                   className="w-full px-3 py-1.5 text-xs bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white font-mono"
@@ -1721,7 +1765,7 @@ const SlotDetailModal: React.FC<SlotDetailModalProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => onSave(slot.id, customStart, customEnd, note)}
+              onClick={handleFormSave}
               className="px-4 py-1.5 text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-lg shadow-xs">
               Mentés
             </button>
