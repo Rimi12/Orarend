@@ -345,6 +345,35 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
     reader.readAsText(file);
   };
 
+  // ── Paste from JSON text / clipboard ───────────────────────────────────────
+  const handlePasteJsonText = () => {
+    const text = prompt('Illeszd be ide a korábbi beosztás JSON szövegét (Ctrl+V):');
+    if (!text) return;
+    try {
+      const parsed = JSON.parse(text.trim());
+      const schedule = parsed.assistantSchedule || parsed;
+      if (!schedule || !Array.isArray(schedule.slots)) {
+        throw new Error('A beillesztett szöveg nem tartalmaz érvényes asszisztens beosztást.');
+      }
+      const newSlots = schedule.slots || [];
+      const newLocations = schedule.locations?.length ? schedule.locations : locations;
+      const newTimeSlots = schedule.timeSlots?.length ? schedule.timeSlots : timeSlots;
+      const newNames = schedule.assistantNames || assistantNames;
+      const newSelectedIds = schedule.selectedAssistantIds || selectedAssistantIds;
+
+      setSlots(newSlots);
+      setLocations(newLocations);
+      setTimeSlots(newTimeSlots);
+      setAssistantNames(newNames);
+      setSelectedAssistantIds(newSelectedIds);
+
+      save(newSlots, newLocations, newSelectedIds, newTimeSlots, newNames);
+      alert('Az asszisztens beosztás sikeresen beillesztve és elmentve!');
+    } catch (err: any) {
+      alert(`Hiba a beillesztés során: ${err.message || 'Érvénytelen JSON formátum'}`);
+    }
+  };
+
   // ── Export to Excel (.xlsx) ─────────────────────────────────────────────────
   const handleExportExcel = () => {
     try {
@@ -839,7 +868,7 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
             </button>
 
             <label className="px-3 py-1.5 text-xs font-semibold bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors cursor-pointer flex items-center gap-1"
-                   title="Korábbi JSON mentés betöltése">
+                   title="Korábbi JSON mentés betöltése fájlból">
               <span>📂</span>
               <span>Betöltés</span>
               <input
@@ -850,6 +879,14 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
                 className="hidden"
               />
             </label>
+
+            <button
+              onClick={handlePasteJsonText}
+              className="px-3 py-1.5 text-xs font-semibold bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300 rounded-lg hover:bg-indigo-200 transition-colors flex items-center gap-1"
+              title="Asszisztens beosztás beillesztése vágólapról vagy szövegből">
+              <span>📋</span>
+              <span>Beillesztés</span>
+            </button>
 
             {/* Excel Export */}
             <button
