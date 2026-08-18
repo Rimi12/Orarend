@@ -1102,83 +1102,104 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
                       </tr>
                     </thead>
                     <tbody>
-                      {timeSlots.map((ts, tsIdx) => (
-                        <tr key={tsIdx} className={tsIdx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50'}>
-                          <td className="border border-gray-300 dark:border-gray-600 p-1.5 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap text-center bg-teal-50/70 dark:bg-teal-950/30">
-                            {ts}
-                          </td>
-                          {locations.map((_, locIdx) => {
-                            const cellSlots = getCellSlots(tsIdx, locIdx);
-                            const isDragOver = dragOverCell?.ts === tsIdx && dragOverCell?.loc === locIdx;
-                            const hasConflict = cellSlots.some(s => conflicts.has(s.id));
+                      {timeSlots.map((ts, tsIdx) => {
+                        const standardDuration = calculateSlotDuration(ts);
+                        const rowMinHeight = Math.max(50, Math.round((standardDuration / 45) * 54));
 
-                            return (
-                              <td key={locIdx}
-                                  onDragOver={e => handleDragOver(e, tsIdx, locIdx)}
-                                  onDragLeave={handleDragLeave}
-                                  onDrop={e => handleDrop(e, tsIdx, locIdx)}
-                                  className={`border border-gray-300 dark:border-gray-600 p-1 align-top transition-colors cursor-default ${
-                                    isDragOver
-                                      ? 'bg-teal-100 dark:bg-teal-800/40 ring-2 ring-teal-400'
-                                      : hasConflict
-                                      ? 'bg-red-50 dark:bg-red-950/30'
-                                      : ''
-                                  }`}
-                                  style={{ minHeight: '38px', verticalAlign: 'top' }}>
-                                <div className="flex flex-col gap-1">
-                                  {cellSlots.map(slot => {
-                                    const displayName = getAssistantName(slot.assistantId);
-                                    const isConflict = conflicts.has(slot.id);
-                                    const colorClass = getColor(slot.assistantId);
-                                    const hasCustomTime = !!(slot.customStartTime && slot.customEndTime);
+                        return (
+                          <tr key={tsIdx} className={tsIdx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50'}>
+                            <td className="border border-gray-300 dark:border-gray-600 p-2 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap text-center bg-teal-50/80 dark:bg-teal-950/40"
+                                style={{ minHeight: `${rowMinHeight}px` }}>
+                              <div className="font-bold text-xs text-teal-950 dark:text-teal-200">{ts}</div>
+                              <div className="text-[10px] font-semibold text-teal-700 dark:text-teal-400 mt-0.5 bg-teal-100/70 dark:bg-teal-900/50 px-1.5 py-0.5 rounded-full inline-block">
+                                ⏱ {standardDuration} perc
+                              </div>
+                            </td>
+                            {locations.map((_, locIdx) => {
+                              const cellSlots = getCellSlots(tsIdx, locIdx);
+                              const isDragOver = dragOverCell?.ts === tsIdx && dragOverCell?.loc === locIdx;
+                              const hasConflict = cellSlots.some(s => conflicts.has(s.id));
 
-                                    return (
-                                      <div key={slot.id}
-                                           draggable
-                                           onDragStart={e => handleDragStartSlot(e, slot.id)}
-                                           onClick={() => setSelectedSlotForDetail(slot)}
-                                           className={`flex flex-col gap-0.5 px-1.5 py-1 rounded-md text-[10px] font-semibold border cursor-pointer active:cursor-grabbing hover:ring-1 hover:ring-gray-400 shadow-xs transition-all ${
-                                             isConflict
-                                               ? 'bg-red-200 text-red-900 border-red-400 dark:bg-red-800/60 dark:text-red-200'
-                                               : colorClass
-                                           }`}
-                                           title={isConflict ? '⚠️ Ütközés! Ez az asszisztens már máshol is be van osztva.' : 'Kattints az egyedi idő vagy részletek módosításához'}>
-                                        <div className="flex items-center justify-between gap-1">
-                                          <span className="truncate">
-                                            {isConflict && '⚠️ '}
-                                            {displayName}
-                                          </span>
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              handleRemoveSlot(slot.id);
-                                            }}
-                                            className="shrink-0 text-current opacity-60 hover:opacity-100 leading-none no-print font-bold"
-                                            title="Törlés">
-                                            ×
-                                          </button>
+                              return (
+                                <td key={locIdx}
+                                    onDragOver={e => handleDragOver(e, tsIdx, locIdx)}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={e => handleDrop(e, tsIdx, locIdx)}
+                                    className={`border border-gray-300 dark:border-gray-600 p-1 align-top transition-colors cursor-default ${
+                                      isDragOver
+                                        ? 'bg-teal-100 dark:bg-teal-800/40 ring-2 ring-teal-400'
+                                        : hasConflict
+                                        ? 'bg-red-50 dark:bg-red-950/30'
+                                        : ''
+                                    }`}
+                                    style={{ minHeight: `${rowMinHeight}px`, verticalAlign: 'top' }}>
+                                  <div className="flex flex-col gap-1.5">
+                                    {cellSlots.map(slot => {
+                                      const displayName = getAssistantName(slot.assistantId);
+                                      const isConflict = conflicts.has(slot.id);
+                                      const colorClass = getColor(slot.assistantId);
+                                      const hasCustomTime = !!(slot.customStartTime && slot.customEndTime);
+                                      const slotMinutes = getSlotWorkingMinutes(slot, timeSlots);
+                                      const cardHeightPx = Math.max(42, Math.min(300, Math.round((slotMinutes / 45) * 50)));
+
+                                      return (
+                                        <div key={slot.id}
+                                             draggable
+                                             onDragStart={e => handleDragStartSlot(e, slot.id)}
+                                             onClick={() => setSelectedSlotForDetail(slot)}
+                                             style={{ minHeight: `${cardHeightPx}px` }}
+                                             className={`flex flex-col justify-between p-1.5 rounded-lg text-[11px] font-semibold border cursor-pointer active:cursor-grabbing hover:ring-2 hover:ring-blue-400 shadow-xs transition-all ${
+                                               isConflict
+                                                 ? 'bg-red-200 text-red-900 border-red-400 dark:bg-red-800/60 dark:text-red-200'
+                                                 : colorClass
+                                             } ${hasCustomTime ? 'border-l-4 border-l-amber-500 ring-1 ring-amber-400/50' : ''}`}
+                                             title={isConflict ? '⚠️ Ütközés! Ez az asszisztens már máshol is be van osztva.' : 'Kattints az egyedi idő vagy részletek módosításához'}>
+                                          <div className="flex items-center justify-between gap-1">
+                                            <span className="truncate font-bold">
+                                              {isConflict && '⚠️ '}
+                                              {displayName}
+                                            </span>
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleRemoveSlot(slot.id);
+                                              }}
+                                              className="shrink-0 text-current opacity-60 hover:opacity-100 leading-none no-print font-bold text-sm px-0.5"
+                                              title="Törlés">
+                                              ×
+                                            </button>
+                                          </div>
+
+                                          {/* Time interval and Duration badge */}
+                                          <div className="mt-1 pt-1 border-t border-black/10 dark:border-white/10 flex flex-col gap-0.5">
+                                            <div className={`flex items-center justify-between gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                              hasCustomTime
+                                                ? 'bg-amber-400/30 text-amber-950 dark:text-amber-200 border border-amber-500/40'
+                                                : 'bg-black/10 dark:bg-white/10'
+                                            }`}>
+                                              <span>
+                                                ⏰ {hasCustomTime ? `${slot.customStartTime}–${slot.customEndTime}` : ts}
+                                              </span>
+                                              <span className="text-[9px] font-extrabold px-1 bg-black/15 dark:bg-white/20 rounded">
+                                                {slotMinutes} perc
+                                              </span>
+                                            </div>
+                                            {slot.note && (
+                                              <span className="text-[9px] font-normal italic opacity-90 truncate">
+                                                📝 {slot.note}
+                                              </span>
+                                            )}
+                                          </div>
                                         </div>
-
-                                        {/* Custom time indicator */}
-                                        {hasCustomTime && (
-                                          <span className="text-[9px] font-normal bg-black/10 dark:bg-white/10 px-1 rounded truncate">
-                                            ⏰ {slot.customStartTime}–{slot.customEndTime}
-                                          </span>
-                                        )}
-                                        {slot.note && (
-                                          <span className="text-[9px] font-normal italic opacity-90 truncate">
-                                            📝 {slot.note}
-                                          </span>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
+                                      );
+                                    })}
+                                  </div>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1407,58 +1428,72 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
             </tr>
           </thead>
           <tbody>
-            {timeSlots.map((ts, tsIdx) => (
-              <tr key={tsIdx} className={tsIdx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50'}>
-                <td className="border border-gray-300 dark:border-gray-700 p-2 font-semibold text-gray-700 dark:text-gray-300 text-center bg-gray-100 dark:bg-gray-800 whitespace-nowrap">
-                  {ts}
-                </td>
-                {DAYS_OF_WEEK.map((_, dIdx) => {
-                  const cellAssignedSlots = assistantWeeklySlots.filter(
-                    s => s.day === dIdx && s.timeSlotIndex === tsIdx
-                  );
-                  const hasConflict = cellAssignedSlots.some(s => conflicts.has(s.id));
+            {timeSlots.map((ts, tsIdx) => {
+              const standardDuration = calculateSlotDuration(ts);
+              const rowMinHeight = Math.max(46, Math.round((standardDuration / 45) * 50));
 
-                  return (
-                    <td key={dIdx} className={`border border-gray-300 dark:border-gray-700 p-1.5 text-center align-middle ${
-                      cellAssignedSlots.length > 0
-                        ? hasConflict
-                          ? 'bg-red-100 dark:bg-red-950/40 text-red-900 font-bold'
-                          : 'bg-teal-50 dark:bg-teal-900/30'
-                        : ''
-                    }`}>
-                      {cellAssignedSlots.length > 0 ? (
-                        <div className="flex flex-wrap justify-center gap-1">
-                          {cellAssignedSlots.map(slot => (
-                            <div key={slot.id} className="flex flex-col items-center">
-                              <span className={`px-2.5 py-1 rounded-md text-xs font-bold border shadow-xs inline-block ${
-                                hasConflict
-                                  ? 'bg-red-200 text-red-900 border-red-400'
-                                  : 'bg-teal-600 text-white border-teal-700'
-                              }`}>
-                                {hasConflict && '⚠️ '}
-                                {locations[slot.locationIndex] ?? `Hely ${slot.locationIndex + 1}`}
-                              </span>
-                              {slot.customStartTime && slot.customEndTime && (
-                                <span className="text-[9px] text-teal-800 dark:text-teal-300 font-semibold mt-0.5">
-                                  {slot.customStartTime}–{slot.customEndTime}
-                                </span>
-                              )}
-                              {slot.note && (
-                                <span className="text-[9px] text-gray-500 dark:text-gray-400 italic">
-                                  {slot.note}
-                                </span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-gray-300 dark:text-gray-600 font-light">-</span>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+              return (
+                <tr key={tsIdx} className={tsIdx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50'}>
+                  <td className="border border-gray-300 dark:border-gray-700 p-2 font-semibold text-gray-700 dark:text-gray-300 text-center bg-gray-100 dark:bg-gray-800 whitespace-nowrap"
+                      style={{ minHeight: `${rowMinHeight}px` }}>
+                    <div className="font-bold text-xs">{ts}</div>
+                    <div className="text-[10px] text-gray-500 font-medium mt-0.5">⏱ {standardDuration} perc</div>
+                  </td>
+                  {DAYS_OF_WEEK.map((_, dIdx) => {
+                    const cellAssignedSlots = assistantWeeklySlots.filter(
+                      s => s.day === dIdx && s.timeSlotIndex === tsIdx
+                    );
+                    const hasConflict = cellAssignedSlots.some(s => conflicts.has(s.id));
+
+                    return (
+                      <td key={dIdx} className={`border border-gray-300 dark:border-gray-700 p-1.5 text-center align-middle ${
+                        cellAssignedSlots.length > 0
+                          ? hasConflict
+                            ? 'bg-red-100 dark:bg-red-950/40 text-red-900 font-bold'
+                            : 'bg-teal-50 dark:bg-teal-900/30'
+                          : ''
+                      }`} style={{ minHeight: `${rowMinHeight}px` }}>
+                        {cellAssignedSlots.length > 0 ? (
+                          <div className="flex flex-wrap justify-center gap-1">
+                            {cellAssignedSlots.map(slot => {
+                              const slotMin = getSlotWorkingMinutes(slot, timeSlots);
+                              const hasCustom = !!(slot.customStartTime && slot.customEndTime);
+                              const cardHeight = Math.max(38, Math.min(240, Math.round((slotMin / 45) * 44)));
+
+                              return (
+                                <div key={slot.id}
+                                     style={{ minHeight: `${cardHeight}px` }}
+                                     className={`flex flex-col items-center justify-between p-1.5 rounded-lg border shadow-xs text-xs font-semibold ${
+                                       hasConflict
+                                         ? 'bg-red-200 text-red-900 border-red-400'
+                                         : 'bg-teal-600 text-white border-teal-700'
+                                     } ${hasCustom ? 'ring-2 ring-amber-400' : ''}`}>
+                                  <span className="font-bold">
+                                    {hasConflict && '⚠️ '}
+                                    {locations[slot.locationIndex] ?? `Hely ${slot.locationIndex + 1}`}
+                                  </span>
+                                  <div className="mt-1 flex items-center gap-1 text-[10px] bg-black/20 px-1.5 py-0.5 rounded font-bold">
+                                    <span>⏰ {hasCustom ? `${slot.customStartTime}–${slot.customEndTime}` : ts}</span>
+                                    <span>({slotMin}p)</span>
+                                  </div>
+                                  {slot.note && (
+                                    <span className="text-[9px] italic opacity-90 mt-0.5">
+                                      📝 {slot.note}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <span className="text-gray-300 dark:text-gray-600 font-light">-</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
           </tbody>
           <tfoot>
             <tr className="bg-teal-100 dark:bg-teal-950 font-bold text-teal-900 dark:text-teal-200">
@@ -1509,6 +1544,41 @@ const SlotDetailModal: React.FC<SlotDetailModalProps> = ({
   const [customEnd, setCustomEnd] = useState(slot.customEndTime || '');
   const [note, setNote] = useState(slot.note || '');
 
+  // Parse default start from standardTimeSlot
+  const defaultSlotStart = useMemo(() => {
+    const parts = standardTimeSlot.split(/[-–—]/);
+    return parts[0]?.trim().replace('.', ':') || '07:30';
+  }, [standardTimeSlot]);
+
+  // Compute live duration
+  const currentDurationMin = useMemo(() => {
+    if (customStart && customEnd) {
+      const s = parseHM(customStart);
+      const e = parseHM(customEnd);
+      if (e > s) return e - s;
+    }
+    return calculateSlotDuration(standardTimeSlot);
+  }, [customStart, customEnd, standardTimeSlot]);
+
+  const estimatedCardHeight = Math.max(42, Math.min(300, Math.round((currentDurationMin / 45) * 50)));
+
+  // Helper to apply duration preset
+  const applyPreset = (minutes: number) => {
+    const startStr = customStart || defaultSlotStart;
+    const startMin = parseHM(startStr);
+    const endMin = startMin + minutes;
+    const endH = Math.floor(endMin / 60) % 24;
+    const endM = endMin % 60;
+    const endStr = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+    setCustomStart(startStr);
+    setCustomEnd(endStr);
+  };
+
+  const clearCustomTime = () => {
+    setCustomStart('');
+    setCustomEnd('');
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-md overflow-hidden flex flex-col"
@@ -1519,7 +1589,7 @@ const SlotDetailModal: React.FC<SlotDetailModalProps> = ({
             <span className="text-xl">⏱️</span>
             <div>
               <h3 className="text-sm font-bold text-gray-900 dark:text-white">
-                Beosztási idősáv részletei
+                Beosztási munkaidő és idősáv beállítása
               </h3>
               <p className="text-xs text-gray-500">
                 {assistantName} • {locationName}
@@ -1534,49 +1604,99 @@ const SlotDetailModal: React.FC<SlotDetailModalProps> = ({
         {/* Form Body */}
         <div className="p-5 space-y-4">
           <div className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-xl text-xs space-y-1">
-            <div><strong>Standard idősáv:</strong> {standardTimeSlot}</div>
+            <div><strong>Alapértelmezett sáv:</strong> {standardTimeSlot}</div>
             <div><strong>Helyszín:</strong> {locationName}</div>
             <div><strong>Dolgozó:</strong> {assistantName}</div>
           </div>
 
+          {/* Quick Presets */}
           <div>
-            <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
-              Egyedi kezdési és befejezési idő (ha eltér a sávtól):
+            <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+              ⚡ Gyors időtartam gombok (automatikus időbeállítás):
             </label>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <span className="text-[10px] text-gray-500">Kezdés (pl. 7:15)</span>
-                <input
-                  type="text"
-                  placeholder="07:15"
-                  value={customStart}
-                  onChange={e => setCustomStart(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white"
-                />
-              </div>
-              <div>
-                <span className="text-[10px] text-gray-500">Végzés (pl. 8:00)</span>
-                <input
-                  type="text"
-                  placeholder="08:00"
-                  value={customEnd}
-                  onChange={e => setCustomEnd(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white"
-                />
-              </div>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { label: '30 perc', min: 30 },
+                { label: '45 perc', min: 45 },
+                { label: '60 perc (1ó)', min: 60 },
+                { label: '90 perc (1.5ó)', min: 90 },
+                { label: '120 perc (2ó)', min: 120 },
+                { label: '180 perc (3ó)', min: 180 },
+                { label: '240 perc (4ó)', min: 240 },
+              ].map(p => (
+                <button
+                  key={p.min}
+                  type="button"
+                  onClick={() => applyPreset(p.min)}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-all ${
+                    currentDurationMin === p.min && customStart && customEnd
+                      ? 'bg-blue-600 text-white border-blue-700 shadow-xs'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:bg-blue-50 dark:hover:bg-blue-900/30'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+              {(customStart || customEnd) && (
+                <button
+                  type="button"
+                  onClick={clearCustomTime}
+                  className="px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"
+                >
+                  Visszaállítás alapra
+                </button>
+              )}
             </div>
-            <p className="text-[10px] text-gray-400 mt-1">
-              Hagyd üresen, ha a standard idősáv teljes időtartama érvényes.
-            </p>
           </div>
 
           <div>
             <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
-              Megjegyzés / Feladat (opcionális):
+              Pontos kezdési és befejezési idő (óra:perc):
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <span className="text-[10px] text-gray-500">Kezdés (pl. 07:30)</span>
+                <input
+                  type="text"
+                  placeholder={defaultSlotStart}
+                  value={customStart}
+                  onChange={e => setCustomStart(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white font-mono"
+                />
+              </div>
+              <div>
+                <span className="text-[10px] text-gray-500">Végzés (pl. 09:30)</span>
+                <input
+                  type="text"
+                  placeholder="08:15"
+                  value={customEnd}
+                  onChange={e => setCustomEnd(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white font-mono"
+                />
+              </div>
+            </div>
+
+            {/* Live Duration and Size Preview */}
+            <div className="mt-2.5 p-2.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl flex items-center justify-between text-xs">
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Számított munkaidő:</span>{' '}
+                <strong className="text-blue-900 dark:text-blue-200 text-sm">{formatMinutes(currentDurationMin)}</strong>{' '}
+                <span className="text-blue-600 dark:text-blue-400 font-semibold">({currentDurationMin} perc)</span>
+              </div>
+              <div className="text-[10px] font-semibold bg-blue-200/70 dark:bg-blue-800/60 text-blue-900 dark:text-blue-100 px-2 py-0.5 rounded-full"
+                   title="A kártya magassága a naptárban ehhez az időtartamhoz igazodik">
+                📐 {estimatedCardHeight}px magasság
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+              Megjegyzés / Tevékenység (opcionális):
             </label>
             <input
               type="text"
-              placeholder="Pl. udvari felügyelet, kísérés..."
+              placeholder="Pl. udvari felügyelet, kísérés, étkeztetés..."
               value={note}
               onChange={e => setNote(e.target.value)}
               className="w-full px-3 py-1.5 text-xs bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white"

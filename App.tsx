@@ -59,6 +59,30 @@ const Main: React.FC = () => {
   const [googleClientId, setGoogleClientId] = useState<string | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
+  // Automatic data transfer from v3.0 via URL Hash
+  useEffect(() => {
+    if (window.location.hash.startsWith('#transfer=')) {
+      try {
+        const raw = decodeURIComponent(window.location.hash.slice(10));
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed) {
+            const strVal = typeof parsed === 'string' ? parsed : JSON.stringify(parsed);
+            localStorage.setItem('assistantScheduleState', strVal);
+            window.dispatchEvent(new Event('assistantScheduleUpdated'));
+            window.history.replaceState(null, '', window.location.pathname);
+            setIsAssistantScheduleOpen(true);
+            setTimeout(() => {
+              alert('✅ Az asszisztens beosztás sikeresen és hiánytalanul átkerült a v3-ból!');
+            }, 300);
+          }
+        }
+      } catch (e) {
+        console.error('Transfer error:', e);
+      }
+    }
+  }, []);
+
   // Potential assistants: teachers with NO allocations at all
   const potentialAssistants = useMemo(() => {
     if (!currentState) return [];
