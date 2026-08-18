@@ -4,17 +4,9 @@
     "api/solve-timetable.py": {
       "memory": 1024,
       "maxDuration": 60
-    },
-    "api/sync.py": {
-      "memory": 512,
-      "maxDuration": 10
     }
   },
   "rewrites": [
-    {
-      "source": "/api/sync",
-      "destination": "/api/sync.py"
-    },
     {
       "source": "/api/solve-timetable",
       "destination": "/api/solve-timetable.py"
