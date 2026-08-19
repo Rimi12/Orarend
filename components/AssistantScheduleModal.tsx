@@ -1121,16 +1121,16 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
               {/* Grid + Sidebar */}
               <div className="flex flex-1 min-h-0 overflow-hidden">
                 <div className="flex-1 overflow-auto p-3">
-                  <table className="border-collapse w-full text-xs" style={{ minWidth: `${100 + locations.length * 95}px` }}>
+                  <table className="border-separate border-spacing-0 w-full text-xs" style={{ minWidth: `${100 + locations.length * 95}px` }}>
                     <thead>
-                      <tr className="bg-teal-50 dark:bg-teal-950/40">
-                        <th className="border border-gray-300 dark:border-gray-600 p-2 font-bold text-gray-700 dark:text-gray-300 whitespace-nowrap bg-teal-100 dark:bg-teal-900/40 text-center"
-                            style={{ minWidth: '95px' }}>
+                      <tr>
+                        <th className="sticky top-0 left-0 z-30 border border-gray-300 dark:border-gray-600 p-2 font-bold text-gray-800 dark:text-gray-200 whitespace-nowrap bg-teal-100 dark:bg-teal-900 text-center shadow-xs"
+                            style={{ minWidth: '95px', width: '95px' }}>
                           Idősáv
                         </th>
                         {locations.map((loc, lIdx) => (
                           <th key={lIdx}
-                              className="border border-gray-300 dark:border-gray-600 p-2 font-bold text-teal-800 dark:text-teal-300 text-center whitespace-nowrap"
+                              className="sticky top-0 z-20 border-t border-b border-r border-gray-300 dark:border-gray-600 p-2 font-bold text-teal-900 dark:text-teal-200 text-center whitespace-nowrap bg-teal-50 dark:bg-teal-950 shadow-xs"
                               style={{ minWidth: '90px' }}>
                             {loc}
                           </th>
@@ -1145,8 +1145,9 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
 
                         return (
                           <tr key={tsIdx} className={tsIdx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50/60 dark:bg-gray-800/40'}>
-                            {/* Left fixed time slot header */}
-                            <td className="border border-gray-300 dark:border-gray-600 p-2 font-bold text-gray-800 dark:text-gray-200 whitespace-nowrap text-center bg-gray-100 dark:bg-gray-800 text-xs w-24">
+                            {/* Left fixed time slot header (sticky when scrolling horizontally) */}
+                            <td className="sticky left-0 z-10 border-l border-b border-r border-gray-300 dark:border-gray-600 p-2 font-bold text-gray-800 dark:text-gray-200 whitespace-nowrap text-center bg-gray-100 dark:bg-gray-800 text-xs shadow-xs"
+                                style={{ minWidth: '95px', width: '95px' }}>
                               {ts}
                             </td>
 
@@ -1169,7 +1170,7 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
                                     onDragOver={e => handleDragOver(e, tsIdx, locIdx)}
                                     onDragLeave={handleDragLeave}
                                     onDrop={e => handleDrop(e, tsIdx, locIdx)}
-                                    className={`border border-gray-300 dark:border-gray-600 p-1.5 align-top transition-colors cursor-default ${
+                                    className={`border-b border-r border-gray-300 dark:border-gray-600 p-1.5 align-top transition-colors cursor-default ${
                                       isDragOver
                                         ? 'bg-teal-100 dark:bg-teal-800/40 ring-2 ring-teal-400'
                                         : hasConflict
@@ -1483,10 +1484,10 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
         </div>
 
         {/* Weekly Grid */}
-        <table className="border-collapse w-full text-xs shadow-sm rounded-lg overflow-hidden border border-gray-300 dark:border-gray-700">
+        <table className="border-separate border-spacing-0 w-full text-xs shadow-sm rounded-lg border border-gray-300 dark:border-gray-700">
           <thead>
-            <tr className="bg-teal-700 text-white">
-              <th className="border border-teal-800 p-2 font-bold w-24 text-center">Idősáv</th>
+            <tr>
+              <th className="sticky top-0 left-0 z-30 border border-teal-800 p-2 font-bold w-24 text-center bg-teal-800 text-white shadow-xs">Idősáv</th>
               {DAYS_OF_WEEK.map((dayName, dIdx) => {
                 const daySlots = assistantWeeklySlots.filter(s => s.day === dIdx);
                 const dayMin = daySlots.reduce(
@@ -1494,8 +1495,8 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
                 );
                 const isFullDay = dayMin >= 480;
                 return (
-                  <th key={dIdx} className={`border border-teal-800 p-2 font-bold text-center ${
-                    isFullDay ? 'bg-emerald-900 text-emerald-100' : ''
+                  <th key={dIdx} className={`sticky top-0 z-20 border-t border-b border-r border-teal-800 p-2 font-bold text-center shadow-xs ${
+                    isFullDay ? 'bg-emerald-900 text-emerald-100' : 'bg-teal-700 text-white'
                   }`}>
                     <div>{dayName}</div>
                     <div className={`text-[10px] mt-0.5 px-1 py-0.5 rounded inline-block ${
@@ -1516,7 +1517,7 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
 
               return (
                 <tr key={tsIdx} className={tsIdx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50/60 dark:bg-gray-800/40'}>
-                  <td className="border border-gray-300 dark:border-gray-700 p-2 font-bold text-gray-800 dark:text-gray-200 text-center bg-gray-100 dark:bg-gray-800 whitespace-nowrap w-24 text-xs">
+                  <td className="sticky left-0 z-10 border-l border-b border-r border-gray-300 dark:border-gray-700 p-2 font-bold text-gray-800 dark:text-gray-200 text-center bg-gray-100 dark:bg-gray-800 whitespace-nowrap w-24 text-xs shadow-xs">
                     {ts}
                   </td>
                   {DAYS_OF_WEEK.map((_, dIdx) => {
@@ -1537,7 +1538,7 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
                     const hasAnyContent = cellAssignedSlots.length > 0 || hangingSlots.length > 0;
 
                     return (
-                      <td key={dIdx} className={`border border-gray-300 dark:border-gray-700 p-1.5 text-center align-top ${
+                      <td key={dIdx} className={`border-r border-b border-gray-300 dark:border-gray-700 p-1.5 text-center align-top ${
                         hasAnyContent
                           ? hasConflict
                             ? 'bg-red-50 dark:bg-red-950/40'
