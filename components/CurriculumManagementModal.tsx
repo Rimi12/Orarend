@@ -216,6 +216,18 @@ export const CurriculumManagementModal: React.FC<CurriculumManagementModalProps>
     return candidateEvaluations.find(c => c.teacher.id === selectedCandidateId) || filteredCandidates[0] || null;
   }, [selectedCandidateId, candidateEvaluations, filteredCandidates]);
 
+  // Placed lessons for currently reassigning allocation
+  const currentAllocPlacedLessons = useMemo(() => {
+    if (!reassigningAlloc) return [];
+    return placedLessons.filter(p => p.allocation.id === reassigningAlloc.id);
+  }, [reassigningAlloc, placedLessons]);
+
+  // Lessons of candidate teacher
+  const candidatePlacedLessons = useMemo(() => {
+    if (!activeCandidate) return [];
+    return placedLessons.filter(p => p.allocation.teacherId === activeCandidate.teacher.id);
+  }, [activeCandidate, placedLessons]);
+
   // Overall Statistics
   const totalWeeklyHours = useMemo(() => allocations.reduce((sum, a) => sum + a.weeklyHours, 0), [allocations]);
   const totalPlacedHours = placedLessons.length;
@@ -271,18 +283,6 @@ export const CurriculumManagementModal: React.FC<CurriculumManagementModalProps>
       removeCustomAllocation(alloc.id);
     }
   };
-
-  // Placed lessons for currently reassigning allocation
-  const currentAllocPlacedLessons = useMemo(() => {
-    if (!reassigningAlloc) return [];
-    return placedLessons.filter(p => p.allocation.id === reassigningAlloc.id);
-  }, [reassigningAlloc, placedLessons]);
-
-  // Lessons of candidate teacher
-  const candidatePlacedLessons = useMemo(() => {
-    if (!activeCandidate) return [];
-    return placedLessons.filter(p => p.allocation.teacherId === activeCandidate.teacher.id);
-  }, [activeCandidate, placedLessons]);
 
   return (
     <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex justify-center items-center z-50 p-2 sm:p-4 lg:p-6" onClick={onClose}>
