@@ -30,6 +30,7 @@ interface HeaderProps {
   setIsStandbySelectionModalOpen: (isOpen: boolean) => void;
   setIsGymModalOpen: (isOpen: boolean) => void;
   setIsAssistantModalOpen: (isOpen: boolean) => void;
+  setIsCurriculumModalOpen: (isOpen: boolean) => void;
   handleExportForKreta: () => void;
   setIsSettingsModalOpen: (isOpen: boolean) => void;
   googleDrive: any;
@@ -54,6 +55,7 @@ export const Header: React.FC<HeaderProps> = ({
   selectedClassId, setSelectedClassId, sortedClasses,
   selectedTeacherId, setSelectedTeacherId, teacherHourCounts, selectedTeacher,
   setIsAvailabilityModalOpen, setIsStandbySelectionModalOpen, setIsGymModalOpen, setIsAssistantModalOpen,
+  setIsCurriculumModalOpen,
   handleExportForKreta, setIsSettingsModalOpen,
   googleDrive, saveStatus, handleSaveToDrive, handleSaveToFile,
   updateFileRef, handleAllocationUpdateFileChange, handleReset,
@@ -153,6 +155,14 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
         </div>
+        <button
+          onClick={() => setIsCurriculumModalOpen(true)}
+          className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors flex items-center gap-2"
+          title="Tantárgyfelosztás szerkesztése, tanárcsere és óraszámok módosítása"
+        >
+          <span className="text-lg">📚</span>
+          <span className="hidden lg:inline">Tantárgyfelosztás</span>
+        </button>
         <button
           onClick={() => setIsAvailabilityModalOpen(true)}
           disabled={!selectedTeacher}

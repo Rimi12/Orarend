@@ -37,8 +37,12 @@ interface TimetableContextType {
   selectedTeacherId: string | null;
   selectedClassId: string | null;
   driveFileId: string | null;
-  setPlacedLessons: (placedLessons: PlacedLesson[]) => void;
-  
+  // Curriculum Management
+  reassignAllocationTeacher: (allocationId: string, targetTeacherId: string, hoursToTransfer?: number) => void;
+  updateAllocationHours: (allocationId: string, newWeeklyHours: number) => void;
+  addCustomAllocation: (teacherId: string, classId: string, subjectNameOrId: string, weeklyHours: number) => void;
+  removeCustomAllocation: (allocationId: string) => void;
+
   // Cloud Sync
   roomCode: string;
   syncStatus: 'connected' | 'syncing' | 'offline' | 'error';
@@ -536,6 +540,163 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         });
     }, [currentState, pushNewState]);
 
+    // ── Curriculum Management Functions ──────────────────────────────────────────
+    const reassignAllocationTeacher = useCallback((allocationId: string, targetTeacherId: string, hoursToTransfer?: number) => {
+        if (!currentState) return;
+        const currentAlloc = currentState.allocations.find(a => a.id === allocationId);
+        if (!currentAlloc || currentAlloc.teacherId === targetTeacherId) return;
+
+        const targetTeacher = currentState.teachers.find(t => t.id === targetTeacherId);
+        if (!targetTeacher) return;
+
+        const transferAll = hoursToTransfer === undefined || hoursToTransfer >= currentAlloc.weeklyHours;
+
+        if (transferAll) {
+            // Full reassignment:
+            const updatedAllocations = currentState.allocations.map(a => {
+                if (a.id === allocationId) {
+                    return { ...a, teacherId: targetTeacherId };
+                }
+                return a;
+            });
+            const updatedPlaced = currentState.placedLessons.map(p => {
+                if (p.allocation.id === allocationId) {
+                    return {
+                        ...p,
+                        allocation: { ...p.allocation, teacherId: targetTeacherId }
+                    };
+                }
+                return p;
+            });
+            pushNewState({
+                ...currentState,
+                allocations: updatedAllocations,
+                placedLessons: updatedPlaced
+            });
+        } else {
+            // Partial split:
+            const hoursKept = currentAlloc.weeklyHours - hoursToTransfer;
+            const newAllocId = `a-${crypto.randomUUID()}`;
+            const newAllocation: Allocation = {
+                id: newAllocId,
+                teacherId: targetTeacherId,
+                classId: currentAlloc.classId,
+                subjectId: currentAlloc.subjectId,
+                weeklyHours: hoursToTransfer,
+                originalClass: currentAlloc.originalClass,
+                originalGroup: currentAlloc.originalGroup,
+            };
+
+            const updatedAllocations = currentState.allocations.map(a => {
+                if (a.id === allocationId) {
+                    return { ...a, weeklyHours: hoursKept };
+                }
+                return a;
+            }).concat(newAllocation);
+
+            // For placed lessons: keep first `hoursKept` placed lessons for currentAlloc, transfer remaining placed lessons up to `hoursToTransfer` to newAllocation
+            let countKept = 0;
+            let countTransferred = 0;
+            const updatedPlaced = currentState.placedLessons.map(p => {
+                if (p.allocation.id === allocationId) {
+                    if (countKept < hoursKept) {
+                        countKept++;
+                        return { ...p, allocation: { ...p.allocation, weeklyHours: hoursKept } };
+                    } else if (countTransferred < hoursToTransfer) {
+                        countTransferred++;
+                        return {
+                            ...p,
+                            allocation: newAllocation
+                        };
+                    }
+                }
+                return p;
+            });
+
+            pushNewState({
+                ...currentState,
+                allocations: updatedAllocations,
+                placedLessons: updatedPlaced
+            });
+        }
+    }, [currentState, pushNewState]);
+
+    const updateAllocationHours = useCallback((allocationId: string, newWeeklyHours: number) => {
+        if (!currentState || newWeeklyHours <= 0) return;
+        const currentAlloc = currentState.allocations.find(a => a.id === allocationId);
+        if (!currentAlloc) return;
+
+        const updatedAllocations = currentState.allocations.map(a => {
+            if (a.id === allocationId) {
+                return { ...a, weeklyHours: newWeeklyHours };
+            }
+            return a;
+        });
+
+        // Check if placed lessons exceed newWeeklyHours
+        let placedCount = 0;
+        const updatedPlaced = currentState.placedLessons.filter(p => {
+            if (p.allocation.id === allocationId) {
+                placedCount++;
+                return placedCount <= newWeeklyHours;
+            }
+            return true;
+        }).map(p => {
+            if (p.allocation.id === allocationId) {
+                return { ...p, allocation: { ...p.allocation, weeklyHours: newWeeklyHours } };
+            }
+            return p;
+        });
+
+        pushNewState({
+            ...currentState,
+            allocations: updatedAllocations,
+            placedLessons: updatedPlaced
+        });
+    }, [currentState, pushNewState]);
+
+    const addCustomAllocation = useCallback((teacherId: string, classId: string, subjectNameOrId: string, weeklyHours: number) => {
+        if (!currentState || !teacherId || !classId || !subjectNameOrId || weeklyHours <= 0) return;
+
+        let subjectId = subjectNameOrId;
+        let newSubjects = [...currentState.subjects];
+
+        // Check if subjectNameOrId is an existing Subject ID or Name
+        const existingSubject = currentState.subjects.find(s => s.id === subjectNameOrId || s.name.trim().toLowerCase() === subjectNameOrId.trim().toLowerCase());
+        if (existingSubject) {
+            subjectId = existingSubject.id;
+        } else {
+            subjectId = `s-${crypto.randomUUID()}`;
+            newSubjects.push({ id: subjectId, name: subjectNameOrId.trim() });
+        }
+
+        const newAllocation: Allocation = {
+            id: `a-${crypto.randomUUID()}`,
+            teacherId,
+            classId,
+            subjectId,
+            weeklyHours: Math.max(1, Math.min(40, Math.round(weeklyHours))),
+        };
+
+        pushNewState({
+            ...currentState,
+            subjects: newSubjects,
+            allocations: [...currentState.allocations, newAllocation]
+        });
+    }, [currentState, pushNewState]);
+
+    const removeCustomAllocation = useCallback((allocationId: string) => {
+        if (!currentState) return;
+        const updatedAllocations = currentState.allocations.filter(a => a.id !== allocationId);
+        const updatedPlaced = currentState.placedLessons.filter(p => p.allocation.id !== allocationId);
+
+        pushNewState({
+            ...currentState,
+            allocations: updatedAllocations,
+            placedLessons: updatedPlaced
+        });
+    }, [currentState, pushNewState]);
+
     const value = useMemo(() => ({
         dataLoaded,
         currentState,
@@ -572,6 +733,12 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setDriveFileId,
         setPlacedLessons,
         
+        // Curriculum Management
+        reassignAllocationTeacher,
+        updateAllocationHours,
+        addCustomAllocation,
+        removeCustomAllocation,
+
         roomCode,
         syncStatus,
         lastSyncedAt,
@@ -589,6 +756,7 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         prepareAllocationUpdate, applyAllocationUpdate, undo, redo, canUndo, canRedo,
         selectedTeacherId, selectedClassId, driveFileId,
         setSelectedTeacherId, setSelectedClassId, setDriveFileId,
+        reassignAllocationTeacher, updateAllocationHours, addCustomAllocation, removeCustomAllocation,
         roomCode, syncStatus, lastSyncedAt, isSyncModalOpen, setRoomCode, pushToCloud, pullFromCloud
     ]);
 

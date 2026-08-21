@@ -21,6 +21,7 @@ import { StandbySelectionModal } from './components/StandbySelectionModal.tsx';
 import { GymScheduleModal } from './components/GymScheduleModal.tsx';
 import { AssistantSelectionModal } from './components/AssistantSelectionModal.tsx';
 import { AssistantScheduleModal } from './components/AssistantScheduleModal.tsx';
+import { CurriculumManagementModal } from './components/CurriculumManagementModal.tsx';
 import { CloudSyncModal } from './components/CloudSyncModal.tsx';
 import { Header } from './components/Header.tsx';
 import { useAutoScheduler } from './hooks/useAutoScheduler.ts';
@@ -45,10 +46,12 @@ const Main: React.FC = () => {
     setSelectedTeacherId, setSelectedClassId,
     sortedTeachers, sortedClasses,
     setTeacherTraveling, setPlacedLessons,
+    reassignAllocationTeacher, updateAllocationHours, addCustomAllocation, removeCustomAllocation,
     roomCode, syncStatus, lastSyncedAt, isSyncModalOpen, setIsSyncModalOpen, setRoomCode, pushToCloud, pullFromCloud
   } = useTimetable();
   
   const [isAvailabilityModalOpen, setIsAvailabilityModalOpen] = useState(false);
+  const [isCurriculumModalOpen, setIsCurriculumModalOpen] = useState(false);
   const [isAutoSchedulerOpen, setIsAutoSchedulerOpen] = useState(false);
   const [isGymModalOpen, setIsGymModalOpen] = useState(false);
   const [isAssistantSelectionOpen, setIsAssistantSelectionOpen] = useState(false);
@@ -262,6 +265,7 @@ const Main: React.FC = () => {
         setIsStandbySelectionModalOpen={setIsStandbySelectionModalOpen}
         setIsGymModalOpen={setIsGymModalOpen}
         setIsAssistantModalOpen={() => setIsAssistantSelectionOpen(true)}
+        setIsCurriculumModalOpen={setIsCurriculumModalOpen}
         handleExportForKreta={handleExportForKreta}
         setIsSettingsModalOpen={setIsSettingsModalOpen}
         googleDrive={googleDrive}
@@ -443,6 +447,20 @@ const Main: React.FC = () => {
         onClose={() => setIsAssistantScheduleOpen(false)}
         selectedAssistants={selectedAssistants}
         allTeachers={sortedTeachers}
+      />
+
+      <CurriculumManagementModal
+        isOpen={isCurriculumModalOpen}
+        onClose={() => setIsCurriculumModalOpen(false)}
+        teachers={currentState.teachers}
+        classes={currentState.classes}
+        subjects={currentState.subjects}
+        allocations={currentState.allocations}
+        placedLessons={currentState.placedLessons}
+        reassignAllocationTeacher={reassignAllocationTeacher}
+        updateAllocationHours={updateAllocationHours}
+        addCustomAllocation={addCustomAllocation}
+        removeCustomAllocation={removeCustomAllocation}
       />
 
       <CloudSyncModal
