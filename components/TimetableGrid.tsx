@@ -77,14 +77,20 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
     printHost.id = 'print-container';
     printHost.appendChild(printContents);
 
-    // 3. Elrejtjük az eredeti alkalmazást és hozzáadjuk a nyomtatási konténert.
+    // 3. Beállítjuk a böngésző címet a PDF mentési fájlnévhez (pl. tanár vagy osztály neve).
+    const originalTitle = document.title;
+    if (title) {
+      document.title = title.replace(/[\\/:*?"<>|]/g, ' ').trim();
+    }
+
+    // 4. Elrejtjük az eredeti alkalmazást és hozzáadjuk a nyomtatási konténert.
     const originalDisplay = rootElement.style.display;
     rootElement.style.display = 'none';
     document.body.appendChild(printHost);
     
-    // 4. A nyomtatás utáni takarítás.
+    // 5. A nyomtatás utáni takarítás.
     const cleanup = () => {
-      // Visszaállítjuk az eredeti állapotot.
+      document.title = originalTitle;
       rootElement.style.display = originalDisplay;
       if (document.body.contains(printHost)) {
         document.body.removeChild(printHost);
@@ -92,9 +98,10 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
       window.removeEventListener('afterprint', cleanup);
     };
 
+    window.removeEventListener('afterprint', cleanup);
     window.addEventListener('afterprint', cleanup);
 
-    // 5. Elindítjuk a nyomtatást.
+    // 6. Elindítjuk a nyomtatást.
     window.print();
   };
 

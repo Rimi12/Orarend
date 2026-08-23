@@ -228,11 +228,21 @@ export const GymScheduleModal: React.FC<GymScheduleModalProps> = ({
       printHost.appendChild(nagyContainer);
     }
 
+    const originalTitle = document.title;
+    if (printTarget === 'kis') {
+      document.title = 'Kis tornaterem órarendje';
+    } else if (printTarget === 'nagy') {
+      document.title = 'Nagy tornaterem órarendje';
+    } else {
+      document.title = 'Tornatermek órarendi beosztása';
+    }
+
     const originalDisplay = rootElement.style.display;
     rootElement.style.display = 'none';
     document.body.appendChild(printHost);
 
     const cleanup = () => {
+      document.title = originalTitle;
       rootElement.style.display = originalDisplay;
       if (document.body.contains(printHost)) {
         document.body.removeChild(printHost);

@@ -766,11 +766,17 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
     printHost.id = 'print-container';
     printHost.appendChild(printContents);
 
+    const originalTitle = document.title;
+    if (printDocTitle) {
+      document.title = printDocTitle.replace(/[\\/:*?"<>|]/g, ' ').trim();
+    }
+
     const originalDisplay = rootElement.style.display;
     rootElement.style.display = 'none';
     document.body.appendChild(printHost);
 
     const cleanup = () => {
+      document.title = originalTitle;
       rootElement.style.display = originalDisplay;
       if (document.body.contains(printHost)) {
         document.body.removeChild(printHost);
@@ -785,15 +791,17 @@ export const AssistantScheduleModal: React.FC<AssistantScheduleModalProps> = ({
 
   const handlePrintCurrentView = () => {
     if (viewMode === 'daily' && dailyPrintRef.current) {
-      triggerPrint(dailyPrintRef.current);
+      triggerPrint(dailyPrintRef.current, `Napi Asszisztens Beosztás - ${DAYS_OF_WEEK[selectedDayIndex]}`);
     } else if (viewMode === 'individual' && individualPrintRef.current) {
-      triggerPrint(individualPrintRef.current);
+      const assistant = visibleAssistants.find(a => a.id === selectedIndividualId);
+      const assistantName = assistant?.name || 'Asszisztens';
+      triggerPrint(individualPrintRef.current, `${assistantName} - Asszisztens beosztás`);
     }
   };
 
   const handlePrintAllIndividual = () => {
     if (allIndividualPrintRef.current) {
-      triggerPrint(allIndividualPrintRef.current);
+      triggerPrint(allIndividualPrintRef.current, `Összes Egyéni Asszisztens Beosztás`);
     }
   };
 
