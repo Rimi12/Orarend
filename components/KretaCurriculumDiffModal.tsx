@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import type { Teacher, Class, Subject, Allocation, ParsedData } from '../types.ts';
 import { parseTimetableFile, normalizeClassName, normalizeSubjectName } from '../utils.ts';
@@ -24,11 +24,11 @@ export interface DiffRowItem {
   className: string;
   groupName: string;
   subjectName: string;
-  baseTeacherId?: string;
-  baseTeacherName: string;
+  baseTeacherNames: string[];
+  baseTeacherDisplay: string;
   baseWeeklyHours: number;
-  currentTeacherId?: string;
-  currentTeacherName: string;
+  currentTeacherNames: string[];
+  currentTeacherDisplay: string;
   currentWeeklyHours: number;
   changeType: DiffChangeType;
   details: string;
@@ -53,6 +53,13 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
   const [diffFilter, setDiffFilter] = useState<'all' | 'changes_only' | 'teacher_only' | 'hours_only' | 'added_only'>('changes_only');
   const [searchTerm, setSearchTerm] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync activeTeacherFilter when modal opens or initialTeacherFilter changes
+  useEffect(() => {
+    if (isOpen && initialTeacherFilter) {
+      setActiveTeacherFilter(initialTeacherFilter);
+    }
+  }, [isOpen, initialTeacherFilter]);
 
   // Maps
   const teacherMap = useMemo(() => new Map(teachers.map(t => [t.id, t])), [teachers]);
@@ -100,14 +107,14 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
 
     if (diffSource === 'uploaded' && uploadedKretaData) {
       baseAllocs = uploadedKretaData.allocations;
-      uploadedKretaData.teachers.forEach(t => baseTeacherMap.set(t.id, t.name));
-      uploadedKretaData.classes.forEach(c => baseClassMap.set(c.id, c.name));
-      uploadedKretaData.subjects.forEach(s => baseSubjectMap.set(s.id, s.name));
+      uploadedKretaData.teachers.forEach(t => baseTeacherMap.set(t.id, t.name.trim()));
+      uploadedKretaData.classes.forEach(c => baseClassMap.set(c.id, c.name.trim()));
+      uploadedKretaData.subjects.forEach(s => baseSubjectMap.set(s.id, s.name.trim()));
     } else {
       baseAllocs = initialAllocations || [];
-      teachers.forEach(t => baseTeacherMap.set(t.id, t.name));
-      classes.forEach(c => baseClassMap.set(c.id, c.name));
-      subjects.forEach(s => baseSubjectMap.set(s.id, s.name));
+      teachers.forEach(t => baseTeacherMap.set(t.id, t.name.trim()));
+      classes.forEach(c => baseClassMap.set(c.id, c.name.trim()));
+      subjects.forEach(s => baseSubjectMap.set(s.id, s.name.trim()));
     }
 
     const makeItemKey = (alloc: Allocation, cMap: Map<string, any>, sMap: Map<string, any>) => {
@@ -128,7 +135,6 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
     };
 
     interface AllocAgg {
-      teacherId: string;
       teacherName: string;
       weeklyHours: number;
       className: string;
@@ -140,7 +146,7 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
     baseAllocs.forEach(a => {
       const key = makeItemKey(a, baseClassMap, baseSubjectMap);
       const tVal = baseTeacherMap.get(a.teacherId);
-      const tName = typeof tVal === 'string' ? tVal : (tVal && typeof tVal === 'object' ? (tVal as any).name : 'Ismeretlen tanár') || 'Ismeretlen tanár';
+      const tName = typeof tVal === 'string' ? tVal.trim() : (tVal && typeof tVal === 'object' ? (tVal as any).name?.trim() : 'Ismeretlen tanár') || 'Ismeretlen tanár';
       
       const cVal = baseClassMap.get(a.classId);
       const cName = a.originalClass || (typeof cVal === 'string' ? cVal : (cVal && typeof cVal === 'object' ? (cVal as any).name : '')) || '';
@@ -151,7 +157,6 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
 
       if (!baseMap.has(key)) baseMap.set(key, []);
       baseMap.get(key)!.push({
-        teacherId: a.teacherId,
         teacherName: tName,
         weeklyHours: a.weeklyHours,
         className: cName,
@@ -163,14 +168,13 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
     const currentMap = new Map<string, AllocAgg[]>();
     allocations.forEach(a => {
       const key = makeItemKey(a, classMap, subjectMap);
-      const tName = teacherMap.get(a.teacherId)?.name || 'Ismeretlen tanár';
+      const tName = teacherMap.get(a.teacherId)?.name?.trim() || 'Ismeretlen tanár';
       const cName = a.originalClass || classMap.get(a.classId)?.name || '';
       const gName = a.originalGroup || '';
       const sName = subjectMap.get(a.subjectId)?.name || '';
 
       if (!currentMap.has(key)) currentMap.set(key, []);
       currentMap.get(key)!.push({
-        teacherId: a.teacherId,
         teacherName: tName,
         weeklyHours: a.weeklyHours,
         className: cName,
@@ -204,10 +208,11 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
             className,
             groupName,
             subjectName,
-            baseTeacherName: '— (Nem szerepel)',
+            baseTeacherNames: [],
+            baseTeacherDisplay: '— (Nem szerepel)',
             baseWeeklyHours: 0,
-            currentTeacherId: ci.teacherId,
-            currentTeacherName: ci.teacherName,
+            currentTeacherNames: [ci.teacherName],
+            currentTeacherDisplay: ci.teacherName,
             currentWeeklyHours: ci.weeklyHours,
             changeType: 'added_in_app',
             details: `Új órarendi felosztás: +${ci.weeklyHours} óra (${ci.teacherName})`
@@ -224,10 +229,11 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
             className,
             groupName,
             subjectName,
-            baseTeacherId: bi.teacherId,
-            baseTeacherName: bi.teacherName,
+            baseTeacherNames: [bi.teacherName],
+            baseTeacherDisplay: bi.teacherName,
             baseWeeklyHours: bi.weeklyHours,
-            currentTeacherName: '— (Törölve)',
+            currentTeacherNames: [],
+            currentTeacherDisplay: '— (Törölve)',
             currentWeeklyHours: 0,
             changeType: 'removed_in_app',
             details: `Hiányzik az órarendből: volt ${bi.weeklyHours} óra (${bi.teacherName})`
@@ -238,8 +244,10 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
 
       const baseTotalHours = baseItems.reduce((s, i) => s + i.weeklyHours, 0);
       const currTotalHours = currentItems.reduce((s, i) => s + i.weeklyHours, 0);
-      const baseTeachersStr = baseItems.map(i => i.teacherName).sort().join(', ');
-      const currTeachersStr = currentItems.map(i => i.teacherName).sort().join(', ');
+      const baseNames = baseItems.map(i => i.teacherName).sort();
+      const currNames = currentItems.map(i => i.teacherName).sort();
+      const baseTeachersStr = baseNames.join(', ');
+      const currTeachersStr = currNames.join(', ');
 
       const isTeacherDiff = baseTeachersStr !== currTeachersStr;
       const isHoursDiff = baseTotalHours !== currTotalHours;
@@ -252,11 +260,11 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
           className,
           groupName,
           subjectName,
-          baseTeacherId: baseItems[0]?.teacherId,
-          baseTeacherName: `${baseTeachersStr} (${baseTotalHours} óra)`,
+          baseTeacherNames: baseNames,
+          baseTeacherDisplay: baseTeachersStr,
           baseWeeklyHours: baseTotalHours,
-          currentTeacherId: currentItems[0]?.teacherId,
-          currentTeacherName: `${currTeachersStr} (${currTotalHours} óra)`,
+          currentTeacherNames: currNames,
+          currentTeacherDisplay: currTeachersStr,
           currentWeeklyHours: currTotalHours,
           changeType: 'teacher_changed',
           details: `Tanárcsere (${baseTeachersStr} ➔ ${currTeachersStr}) és óraszám módosulás (${baseTotalHours} ➔ ${currTotalHours} óra)`
@@ -268,11 +276,11 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
           className,
           groupName,
           subjectName,
-          baseTeacherId: baseItems[0]?.teacherId,
-          baseTeacherName: baseTeachersStr,
+          baseTeacherNames: baseNames,
+          baseTeacherDisplay: baseTeachersStr,
           baseWeeklyHours: baseTotalHours,
-          currentTeacherId: currentItems[0]?.teacherId,
-          currentTeacherName: currTeachersStr,
+          currentTeacherNames: currNames,
+          currentTeacherDisplay: currTeachersStr,
           currentWeeklyHours: currTotalHours,
           changeType: 'teacher_changed',
           details: `Tanárcsere: ${baseTeachersStr} ➔ ${currTeachersStr}`
@@ -284,11 +292,11 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
           className,
           groupName,
           subjectName,
-          baseTeacherId: baseItems[0]?.teacherId,
-          baseTeacherName: baseTeachersStr,
+          baseTeacherNames: baseNames,
+          baseTeacherDisplay: baseTeachersStr,
           baseWeeklyHours: baseTotalHours,
-          currentTeacherId: currentItems[0]?.teacherId,
-          currentTeacherName: currTeachersStr,
+          currentTeacherNames: currNames,
+          currentTeacherDisplay: currTeachersStr,
           currentWeeklyHours: currTotalHours,
           changeType: 'hours_changed',
           details: `Óraszám változás: ${baseTotalHours} óra ➔ ${currTotalHours} óra (${currTotalHours > baseTotalHours ? '+' : ''}${currTotalHours - baseTotalHours} óra)`
@@ -299,11 +307,11 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
           className,
           groupName,
           subjectName,
-          baseTeacherId: baseItems[0]?.teacherId,
-          baseTeacherName: baseTeachersStr,
+          baseTeacherNames: baseNames,
+          baseTeacherDisplay: baseTeachersStr,
           baseWeeklyHours: baseTotalHours,
-          currentTeacherId: currentItems[0]?.teacherId,
-          currentTeacherName: currTeachersStr,
+          currentTeacherNames: currNames,
+          currentTeacherDisplay: currTeachersStr,
           currentWeeklyHours: currTotalHours,
           changeType: 'identical',
           details: 'Változatlan'
@@ -311,13 +319,14 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
       }
     });
 
-    // Teacher total hours comparison calculation
+    // Teacher total hours comparison calculation strictly by teacher name
     const teacherHoursMap: Record<string, { teacherId?: string; teacherName: string; baseHours: number; currentHours: number; delta: number; changesCount: number }> = {};
 
     teachers.forEach(t => {
-      teacherHoursMap[t.name] = {
+      const cleanName = t.name.trim();
+      teacherHoursMap[cleanName] = {
         teacherId: t.id,
-        teacherName: t.name,
+        teacherName: cleanName,
         baseHours: 0,
         currentHours: 0,
         delta: 0,
@@ -326,7 +335,8 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
     });
 
     baseAllocs.forEach(a => {
-      const tName = baseTeacherMap.get(a.teacherId) || 'Ismeretlen';
+      const rawName = baseTeacherMap.get(a.teacherId);
+      const tName = typeof rawName === 'string' ? rawName.trim() : 'Ismeretlen';
       if (!teacherHoursMap[tName]) {
         teacherHoursMap[tName] = { teacherId: a.teacherId, teacherName: tName, baseHours: 0, currentHours: 0, delta: 0, changesCount: 0 };
       }
@@ -334,22 +344,23 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
     });
 
     allocations.forEach(a => {
-      const tName = teacherMap.get(a.teacherId)?.name || 'Ismeretlen';
+      const rawName = teacherMap.get(a.teacherId)?.name;
+      const tName = typeof rawName === 'string' ? rawName.trim() : 'Ismeretlen';
       if (!teacherHoursMap[tName]) {
         teacherHoursMap[tName] = { teacherId: a.teacherId, teacherName: tName, baseHours: 0, currentHours: 0, delta: 0, changesCount: 0 };
       }
       teacherHoursMap[tName].currentHours += a.weeklyHours;
     });
 
-    // Count changes per teacher
+    // Count changes per teacher strictly by touched names
     rows.forEach(r => {
       if (r.changeType !== 'identical') {
-        if (r.currentTeacherName && teacherHoursMap[r.currentTeacherName]) {
-          teacherHoursMap[r.currentTeacherName].changesCount++;
-        }
-        if (r.baseTeacherName && teacherHoursMap[r.baseTeacherName] && r.baseTeacherName !== r.currentTeacherName) {
-          teacherHoursMap[r.baseTeacherName].changesCount++;
-        }
+        const touched = new Set([...r.baseTeacherNames, ...r.currentTeacherNames]);
+        touched.forEach(tName => {
+          if (teacherHoursMap[tName]) {
+            teacherHoursMap[tName].changesCount++;
+          }
+        });
       }
     });
 
@@ -392,14 +403,15 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
     return teachers.find(t => t.id === activeTeacherFilter) || null;
   }, [activeTeacherFilter, teachers]);
 
-  // Filtered rows for display
+  // Filtered rows for display strictly matching the selected teacher
   const displayedRows = useMemo(() => {
     return diffRows.filter(row => {
-      // Teacher filter
-      if (activeTeacherFilter !== 'all') {
-        const matchesCurrent = row.currentTeacherId === activeTeacherFilter || (selectedTeacherObj && row.currentTeacherName.includes(selectedTeacherObj.name));
-        const matchesBase = row.baseTeacherId === activeTeacherFilter || (selectedTeacherObj && row.baseTeacherName.includes(selectedTeacherObj.name));
-        if (!matchesCurrent && !matchesBase) return false;
+      // Teacher filter (strictly by normalized teacher name!)
+      if (selectedTeacherObj) {
+        const targetName = selectedTeacherObj.name.trim().toLowerCase();
+        const isInBase = row.baseTeacherNames.some(n => n.trim().toLowerCase() === targetName);
+        const isInCurrent = row.currentTeacherNames.some(n => n.trim().toLowerCase() === targetName);
+        if (!isInBase && !isInCurrent) return false;
       }
 
       // Change type filter
@@ -413,19 +425,20 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
         const query = searchTerm.toLowerCase().trim();
         const matchesClass = row.className.toLowerCase().includes(query) || row.groupName.toLowerCase().includes(query);
         const matchesSubject = row.subjectName.toLowerCase().includes(query);
-        const matchesTeacher = row.baseTeacherName.toLowerCase().includes(query) || row.currentTeacherName.toLowerCase().includes(query);
+        const matchesTeacher = row.baseTeacherDisplay.toLowerCase().includes(query) || row.currentTeacherDisplay.toLowerCase().includes(query);
         if (!matchesClass && !matchesSubject && !matchesTeacher) return false;
       }
 
       return true;
     });
-  }, [diffRows, activeTeacherFilter, selectedTeacherObj, diffFilter, searchTerm]);
+  }, [diffRows, selectedTeacherObj, diffFilter, searchTerm]);
 
   // Selected teacher summary info
   const selectedTeacherSummary = useMemo(() => {
     if (!selectedTeacherObj) return null;
-    return teacherHourComparison.find(i => i.teacherName === selectedTeacherObj.name) || {
-      teacherName: selectedTeacherObj.name,
+    const cleanName = selectedTeacherObj.name.trim();
+    return teacherHourComparison.find(i => i.teacherName === cleanName) || {
+      teacherName: cleanName,
       baseHours: 0,
       currentHours: allocations.filter(a => a.teacherId === selectedTeacherObj.id).reduce((s, a) => s + a.weeklyHours, 0),
       delta: 0,
@@ -459,7 +472,7 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
 
           <div className="flex items-center gap-3">
             {/* Quick Export Action */}
-            {activeTeacherFilter !== 'all' && selectedTeacherObj ? (
+            {selectedTeacherObj ? (
               <button
                 type="button"
                 onClick={() => onExportCurriculum(selectedTeacherObj.id)}
@@ -717,11 +730,11 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
                           {row.subjectName}
                         </td>
                         <td className="py-2 px-3 text-gray-600 dark:text-gray-400">
-                          <span className="font-semibold">{row.baseTeacherName}</span>
+                          <span className="font-semibold">{row.baseTeacherDisplay}</span>
                           {row.baseWeeklyHours > 0 && <span className="ml-1 text-[11px]">({row.baseWeeklyHours} óra)</span>}
                         </td>
                         <td className="py-2 px-3 font-semibold text-gray-900 dark:text-white">
-                          <span>{row.currentTeacherName}</span>
+                          <span>{row.currentTeacherDisplay}</span>
                           {row.currentWeeklyHours > 0 && <span className="ml-1 text-[11px] text-blue-600 dark:text-blue-400">({row.currentWeeklyHours} óra)</span>}
                         </td>
                         <td className="py-2 px-3 text-right">
@@ -756,14 +769,14 @@ export const KretaCurriculumDiffModal: React.FC<KretaCurriculumDiffModalProps> =
             <span>📖 {allocations.length} órarendi felosztás</span>
             <span>•</span>
             <span className="text-gray-900 dark:text-white font-bold">
-              {activeTeacherFilter !== 'all' && selectedTeacherObj 
+              {selectedTeacherObj 
                 ? `Kiválasztva: ${selectedTeacherObj.name}`
                 : `Összes eltérés: ${diffStats.totalChanges} db`}
             </span>
           </div>
 
           <div className="flex items-center gap-3">
-            {activeTeacherFilter !== 'all' && selectedTeacherObj ? (
+            {selectedTeacherObj ? (
               <button
                 type="button"
                 onClick={() => onExportCurriculum(selectedTeacherObj.id)}
