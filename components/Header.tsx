@@ -210,6 +210,14 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <button
+          onClick={() => setIsCurriculumModalOpen(true)}
+          className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors flex items-center gap-2 shadow-sm"
+          title="Tantárgyfelosztás szerkesztése, tanárcsere és óraszámok módosítása"
+        >
+          <span className="text-lg">📚</span>
+          <span className="hidden lg:inline">Tantárgyfelosztás</span>
+        </button>
+        <button
           onClick={onStartAutoSchedule}
           className="px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all flex items-center gap-2"
           title="Automatikus AI órarend-tervezés"
