@@ -291,14 +291,18 @@ export const CurriculumManagementModal: React.FC<CurriculumManagementModalProps>
     }
 
     // Helper to generate a normalized item key
-    const makeItemKey = (alloc: Allocation, cMap: Map<string, string>, sMap: Map<string, string>) => {
-      const origC = alloc.originalClass || '';
-      const origG = alloc.originalGroup || '';
-      const cName = cMap.get(alloc.classId) || '';
-      const sName = sMap.get(alloc.subjectId) || '';
+    const makeItemKey = (alloc: Allocation, cMap: Map<string, any>, sMap: Map<string, any>) => {
+      const origC = typeof alloc.originalClass === 'string' ? alloc.originalClass : '';
+      const origG = typeof alloc.originalGroup === 'string' ? alloc.originalGroup : '';
+      
+      const cVal = cMap.get(alloc.classId);
+      const cName = typeof cVal === 'string' ? cVal : (cVal && typeof cVal === 'object' ? cVal.name : '') || '';
+      
+      const sVal = sMap.get(alloc.subjectId);
+      const sName = typeof sVal === 'string' ? sVal : (sVal && typeof sVal === 'object' ? sVal.name : '') || '';
 
       const normC = normalizeClassName(origC || (origG ? '' : cName));
-      const normG = origG || (cName.includes('csoport') ? cName : '');
+      const normG = origG || (typeof cName === 'string' && cName.includes('csoport') ? cName : '');
       const normS = normalizeSubjectName(sName);
 
       return `${normC}###${normG}###${normS}`;
@@ -316,10 +320,15 @@ export const CurriculumManagementModal: React.FC<CurriculumManagementModalProps>
     const baseMap = new Map<string, AllocAgg[]>();
     baseAllocs.forEach(a => {
       const key = makeItemKey(a, baseClassMap, baseSubjectMap);
-      const tName = baseTeacherMap.get(a.teacherId) || 'Ismeretlen tanár';
-      const cName = a.originalClass || baseClassMap.get(a.classId) || '';
+      const tVal = baseTeacherMap.get(a.teacherId);
+      const tName = typeof tVal === 'string' ? tVal : (tVal && typeof tVal === 'object' ? (tVal as any).name : 'Ismeretlen tanár') || 'Ismeretlen tanár';
+      
+      const cVal = baseClassMap.get(a.classId);
+      const cName = a.originalClass || (typeof cVal === 'string' ? cVal : (cVal && typeof cVal === 'object' ? (cVal as any).name : '')) || '';
       const gName = a.originalGroup || '';
-      const sName = baseSubjectMap.get(a.subjectId) || '';
+      
+      const sVal = baseSubjectMap.get(a.subjectId);
+      const sName = (typeof sVal === 'string' ? sVal : (sVal && typeof sVal === 'object' ? (sVal as any).name : '')) || '';
 
       if (!baseMap.has(key)) baseMap.set(key, []);
       baseMap.get(key)!.push({
