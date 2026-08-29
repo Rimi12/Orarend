@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
 import type { Teacher, Class, Subject, Allocation, PlacedLesson, UnplacedLesson, TimetableCellData, Collision, SavedState, ParsedData, AllocationUpdateSummary, AppHistoryState } from '../types.ts';
-import { TEACHER_COLORS } from '../constants.ts';
+import { NUMBER_OF_DAYS, NUMBER_OF_PERIODS, TEACHER_COLORS } from '../constants.ts';
 import { migrateHittanState } from '../utils.ts';
 import { getActiveRoomCode, setActiveRoomCode, subscribeToCloudDoc, saveToCloudDoc, CLIENT_ID } from '../services/firebaseSync.ts';
 import { KRETA_HELYISEG_DEFAULT } from '../kretaTemplateData.ts';
