@@ -8,6 +8,7 @@ import { PlacedLessonCard } from './LessonCard.tsx';
 import { ExportIcon } from './icons/ExportIcon.tsx';
 import { PrintIcon } from './icons/PrintIcon.tsx';
 import { TrashIcon } from './icons/TrashIcon.tsx';
+import { Squares2X2Icon } from './icons/Squares2X2Icon.tsx';
 
 interface TimetableGridProps {
   title: string;
@@ -22,6 +23,7 @@ interface TimetableGridProps {
   draggedAllocation: Allocation | null;
   checkCollision: (allocation: Allocation, cell: TimetableCellData) => Collision;
   onExport: () => void;
+  onExportKreta?: () => void;
   onClearTimetable?: () => void;
 }
 
@@ -38,6 +40,7 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
   draggedAllocation,
   checkCollision,
   onExport,
+  onExportKreta,
   onClearTimetable
 }) => {
   const [dragOverCell, setDragOverCell] = React.useState<TimetableCellData | null>(null);
@@ -133,6 +136,17 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{title}</h2>
         <div className="flex items-center gap-2 no-print">
+            {viewType === 'teacher' && onExportKreta && (
+              <button 
+                onClick={onExportKreta}
+                className="px-3 py-1.5 bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-100 dark:hover:bg-cyan-900/60 border border-cyan-300 dark:border-cyan-700 transition-all rounded-lg flex items-center gap-1.5 font-semibold text-xs shadow-sm hover:scale-[1.02] active:scale-[0.98]"
+                title={`${title} exportálása Kréta import Excel formátumban (.xlsx)`}
+                aria-label={`${title} Kréta import export`}
+              >
+                <Squares2X2Icon className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
+                <span>Kréta Import</span>
+              </button>
+            )}
             {onClearTimetable && (
               <button 
                 onClick={onClearTimetable}
@@ -146,13 +160,15 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
             <button 
               onClick={onExport}
               className="p-2 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors rounded-full"
-              aria-label={`${title} exportálása`}
+              title={`${title} vizuális táblázat exportálása (.xlsx)`}
+              aria-label={`${title} vizuális táblázat exportálása`}
             >
               <ExportIcon className="w-6 h-6" />
             </button>
             <button 
               onClick={handlePrint}
               className="p-2 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors rounded-full"
+              title={`${title} nyomtatása`}
               aria-label={`${title} nyomtatása`}
             >
               <PrintIcon className="w-6 h-6" />

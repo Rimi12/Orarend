@@ -32,6 +32,8 @@ interface HeaderProps {
   setIsAssistantModalOpen: (isOpen: boolean) => void;
   setIsCurriculumModalOpen: (isOpen: boolean) => void;
   handleExportForKreta: () => void;
+  handleExportTeacherForKreta?: (teacherId?: string) => void;
+  handleExportAllTeachersForKreta?: () => void;
   setIsSettingsModalOpen: (isOpen: boolean) => void;
   googleDrive: any;
   saveStatus: 'idle' | 'saving' | 'saved';
@@ -56,12 +58,24 @@ export const Header: React.FC<HeaderProps> = ({
   selectedTeacherId, setSelectedTeacherId, teacherHourCounts, selectedTeacher,
   setIsAvailabilityModalOpen, setIsStandbySelectionModalOpen, setIsGymModalOpen, setIsAssistantModalOpen,
   setIsCurriculumModalOpen,
-  handleExportForKreta, setIsSettingsModalOpen,
+  handleExportForKreta, handleExportTeacherForKreta, handleExportAllTeachersForKreta, setIsSettingsModalOpen,
   googleDrive, saveStatus, handleSaveToDrive, handleSaveToFile,
   updateFileRef, handleAllocationUpdateFileChange, handleReset,
   onStartAutoSchedule, onClearClassTimetable, onClearTeacherTimetable,
   onOpenCloudSync, syncStatus = 'offline', roomCode = 'zoldmezo-2025'
 }) => {
+  const [isKretaMenuOpen, setIsKretaMenuOpen] = React.useState(false);
+  const kretaMenuRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (kretaMenuRef.current && !kretaMenuRef.current.contains(event.target as Node)) {
+        setIsKretaMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
   return (
     <header className="bg-white dark:bg-gray-800 shadow-md rounded-2xl p-4 mb-6 flex flex-wrap items-center justify-between gap-4 no-print">
       <div className="flex items-center gap-3">
@@ -140,9 +154,21 @@ export const Header: React.FC<HeaderProps> = ({
         <div>
           <label htmlFor="teacher-select" className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Tanár</label>
           <div className="flex items-center gap-1">
-            <select id="teacher-select" value={selectedTeacherId || ''} onChange={e => setSelectedTeacherId(e.target.value)} className="w-52 sm:w-60 bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500">
+            <select id="teacher-select" value={selectedTeacherId || ''} onChange={e => setSelectedTeacherId(e.target.value)} className="w-48 sm:w-56 bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500">
               {teacherHourCounts.map(t => <option key={t.id} value={t.id}>{t.display}</option>)}
             </select>
+            {handleExportTeacherForKreta && (
+              <button
+                onClick={() => handleExportTeacherForKreta(selectedTeacherId || '')}
+                disabled={!selectedTeacherId}
+                className="p-2 bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-100 dark:hover:bg-cyan-900/60 border border-cyan-300 dark:border-cyan-700 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1 shadow-sm"
+                title={selectedTeacher ? `${selectedTeacher.name} órarendjének exportálása Kréta import formátumban (.xlsx)` : "Válassz ki egy tanárt a Kréta exporthoz"}
+                aria-label="Kiválasztott tanár Kréta import fájl (.xlsx) exportálása"
+              >
+                <Squares2X2Icon className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
+                <span className="hidden xl:inline text-xs font-semibold">Kréta</span>
+              </button>
+            )}
             {onClearTeacherTimetable && (
               <button
                 onClick={onClearTeacherTimetable}
@@ -202,14 +228,88 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="text-lg">👤</span>
             <span className="hidden lg:inline">Asszisztens</span>
           </button>
-          <button
-            onClick={handleExportForKreta}
-            className="px-4 py-2.5 bg-cyan-600 text-white font-semibold rounded-lg hover:bg-cyan-700 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-colors flex items-center gap-2"
-            title="Teljes órarend exportálása Kréta import formátumban"
-          >
-            <Squares2X2Icon className="w-5 h-5" />
-            <span className="hidden lg:inline">Kréta Export</span>
-          </button>
+          {/* Kréta Export Menu Button */}
+          <div className="relative" ref={kretaMenuRef}>
+            <div className="inline-flex rounded-lg shadow-sm">
+              <button
+                onClick={handleExportForKreta}
+                className="px-3.5 py-2.5 bg-cyan-600 text-white font-semibold rounded-l-lg hover:bg-cyan-700 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-colors flex items-center gap-2"
+                title="Teljes órarend exportálása Kréta import formátumban (.xlsx)"
+              >
+                <Squares2X2Icon className="w-5 h-5" />
+                <span className="hidden lg:inline">Kréta Export</span>
+              </button>
+              <button
+                onClick={() => setIsKretaMenuOpen(prev => !prev)}
+                className="px-2 py-2.5 bg-cyan-700 text-white font-semibold rounded-r-lg hover:bg-cyan-800 border-l border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-colors"
+                title="Kréta export opciók (Tanáronkénti / Teljes / Kötegelt)"
+              >
+                <svg className={`w-4 h-4 transition-transform ${isKretaMenuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+            </div>
+
+            {isKretaMenuOpen && (
+              <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 py-2 z-50 animate-in fade-in zoom-in-95 duration-100">
+                <div className="px-3 py-1.5 border-b border-gray-100 dark:border-gray-700 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                  Kréta Import Formátum (.xlsx)
+                </div>
+                
+                {/* 1. Selected Teacher */}
+                <button
+                  onClick={() => {
+                    setIsKretaMenuOpen(false);
+                    if (handleExportTeacherForKreta) {
+                      handleExportTeacherForKreta(selectedTeacherId || undefined);
+                    }
+                  }}
+                  disabled={!selectedTeacherId}
+                  className="w-full text-left px-4 py-2.5 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 text-sm text-gray-700 dark:text-gray-200 flex items-start gap-2.5 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <span className="text-base mt-0.5">👤</span>
+                  <div>
+                    <div className="font-semibold text-gray-900 dark:text-white">Kiválasztott pedagógus órarendje</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      {selectedTeacher ? `${selectedTeacher.name} Kréta import fájlja` : 'Válassz ki egy tanárt a listából'}
+                    </div>
+                  </div>
+                </button>
+
+                {/* 2. Full school */}
+                <button
+                  onClick={() => {
+                    setIsKretaMenuOpen(false);
+                    handleExportForKreta();
+                  }}
+                  className="w-full text-left px-4 py-2.5 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 text-sm text-gray-700 dark:text-gray-200 flex items-start gap-2.5 transition-colors border-t border-gray-100 dark:border-gray-700/50"
+                >
+                  <span className="text-base mt-0.5">🏫</span>
+                  <div>
+                    <div className="font-semibold text-gray-900 dark:text-white">Teljes intézményi órarend</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Minden osztály és tanár egy fájlban</div>
+                  </div>
+                </button>
+
+                {/* 3. Batch all teachers */}
+                {handleExportAllTeachersForKreta && (
+                  <button
+                    onClick={() => {
+                      setIsKretaMenuOpen(false);
+                      handleExportAllTeachersForKreta();
+                    }}
+                    className="w-full text-left px-4 py-2.5 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 text-sm text-gray-700 dark:text-gray-200 flex items-start gap-2.5 transition-colors border-t border-gray-100 dark:border-gray-700/50"
+                  >
+                    <span className="text-base mt-0.5">👥</span>
+                    <div>
+                      <div className="font-semibold text-gray-900 dark:text-white">Összes pedagógus külön-külön</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Minden tanárhoz saját fájl a 2026 mappába</div>
+                    </div>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         <div className="flex items-center gap-2 border-l border-gray-300 dark:border-gray-600 pl-2 sm:pl-4">
             <button
               onClick={() => setIsSettingsModalOpen(true)}

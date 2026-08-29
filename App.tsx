@@ -144,7 +144,12 @@ const Main: React.FC = () => {
     handleCancelParallel
   } = useDragAndDrop();
 
-  const { handleExport, handleExportForKreta } = useExport();
+  const {
+    handleExport,
+    handleExportForKreta,
+    handleExportTeacherForKreta,
+    handleExportAllTeachersForKreta
+  } = useExport();
 
   const {
     isStandbySelectionModalOpen,
@@ -267,6 +272,8 @@ const Main: React.FC = () => {
         setIsAssistantModalOpen={() => setIsAssistantSelectionOpen(true)}
         setIsCurriculumModalOpen={setIsCurriculumModalOpen}
         handleExportForKreta={handleExportForKreta}
+        handleExportTeacherForKreta={handleExportTeacherForKreta}
+        handleExportAllTeachersForKreta={handleExportAllTeachersForKreta}
         setIsSettingsModalOpen={setIsSettingsModalOpen}
         googleDrive={googleDrive}
         saveStatus={saveStatus}
@@ -338,6 +345,7 @@ const Main: React.FC = () => {
                 draggedAllocation={draggedAllocation}
                 checkCollision={checkCollision}
                 onExport={() => handleExport('teacher')}
+                onExportKreta={() => handleExportTeacherForKreta(selectedTeacher.id)}
                 onClearTimetable={handleClearTeacherTimetable}
               />
             )}
