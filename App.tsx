@@ -151,7 +151,8 @@ const Main: React.FC = () => {
     handleExport,
     handleExportForKreta,
     handleExportTeacherForKreta,
-    handleExportAllTeachersForKreta
+    handleExportAllTeachersForKreta,
+    handleExportCurriculumForKreta
   } = useExport();
 
   const [kretaModalState, setKretaModalState] = useState<{

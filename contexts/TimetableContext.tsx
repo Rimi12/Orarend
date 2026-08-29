@@ -285,18 +285,18 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         if (!currentState) return { teacher: false, class: false, availability: true };
 
         const teacher = findTeacher(allocation.teacherId);
-        const teacherIsAvailable = teacher?.availability[cell.day]?.[cell.period] ?? true;
+        const teacherIsAvailable = teacher?.availability?.[cell.day]?.[cell.period] ?? true;
         
         const isTeacherBusy = currentState.placedLessons.some(p => 
             p.day === cell.day &&
             p.period === cell.period &&
-            p.allocation.teacherId === allocation.teacherId
+            p.allocation?.teacherId === allocation.teacherId
         );
         
         const isClassBusy = currentState.placedLessons.some(p =>
             p.day === cell.day &&
             p.period === cell.period &&
-            p.allocation.classId === allocation.classId
+            p.allocation?.classId === allocation.classId
         );
 
         return {
@@ -404,16 +404,22 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     
     const loadState = useCallback((savedState: SavedState) => {
         try {
-            if (!savedState.version || !savedState.teachers || !savedState.placedLessons || !savedState.allocations) {
+            if (!savedState || !Array.isArray(savedState.teachers) || !Array.isArray(savedState.allocations)) {
                 throw new Error("A mentett adat formátuma érvénytelen vagy hiányos.");
             }
             
             const migratedTeachers = savedState.teachers.map((teacher, index) => {
-                if (!teacher.color) {
-                    return { ...teacher, color: TEACHER_COLORS[index % TEACHER_COLORS.length] };
-                }
-                return teacher;
+                const avail = Array.isArray(teacher.availability) && teacher.availability.length === NUMBER_OF_DAYS
+                    ? teacher.availability
+                    : Array(NUMBER_OF_DAYS).fill(0).map(() => Array(NUMBER_OF_PERIODS).fill(true));
+                return {
+                    ...teacher,
+                    availability: avail,
+                    color: teacher.color || TEACHER_COLORS[index % TEACHER_COLORS.length]
+                };
             });
+
+            const safePlacedLessons = (savedState.placedLessons || []).filter(pl => pl && pl.allocation && pl.allocation.id && pl.allocation.teacherId && pl.allocation.classId);
             
             // Reconstruct the state object ensuring all keys are present to prevent crashes with older save files.
             const completeState: AppHistoryState = {
@@ -421,7 +427,7 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 classes: savedState.classes || [],
                 subjects: savedState.subjects || [],
                 allocations: savedState.allocations || [],
-                placedLessons: savedState.placedLessons || [],
+                placedLessons: safePlacedLessons,
                 initialAllocations: savedState.initialAllocations || savedState.allocations || [],
             };
 
