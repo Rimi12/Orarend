@@ -1,6 +1,10 @@
-import React, { useState, useMemo } from 'react';
-import type { Teacher, Class, Subject, Allocation, PlacedLesson } from '../types.ts';
+import React, { useState, useMemo, useRef } from 'react';
+import * as XLSX from 'xlsx';
+import type { Teacher, Class, Subject, Allocation, PlacedLesson, ParsedData } from '../types.ts';
 import { DAYS_OF_WEEK } from '../constants.ts';
+import { parseTimetableFile, normalizeClassName, normalizeSubjectName } from '../utils.ts';
+import { Squares2X2Icon } from './icons/Squares2X2Icon.tsx';
+import { DocumentArrowUpIcon } from './icons/DocumentArrowUpIcon.tsx';
 
 interface CurriculumManagementModalProps {
   isOpen: boolean;
@@ -10,10 +14,12 @@ interface CurriculumManagementModalProps {
   subjects: Subject[];
   allocations: Allocation[];
   placedLessons: PlacedLesson[];
+  initialAllocations?: Allocation[];
   reassignAllocationTeacher: (allocationId: string, targetTeacherId: string, hoursToTransfer?: number) => void;
   updateAllocationHours: (allocationId: string, newWeeklyHours: number) => void;
   addCustomAllocation: (teacherId: string, classId: string, subjectNameOrId: string, weeklyHours: number) => void;
   removeCustomAllocation: (allocationId: string) => void;
+  onExportCurriculum?: (teacherIdFilter?: string) => void;
 }
 
 interface CandidateEvaluation {
@@ -26,6 +32,21 @@ interface CandidateEvaluation {
   isAvailableAll: boolean;
 }
 
+export type DiffChangeType = 'teacher_changed' | 'hours_changed' | 'added_in_app' | 'removed_in_app' | 'identical';
+
+export interface DiffRowItem {
+  key: string;
+  className: string;
+  groupName: string;
+  subjectName: string;
+  baseTeacherName: string;
+  baseWeeklyHours: number;
+  currentTeacherName: string;
+  currentWeeklyHours: number;
+  changeType: DiffChangeType;
+  details: string;
+}
+
 export const CurriculumManagementModal: React.FC<CurriculumManagementModalProps> = ({
   isOpen,
   onClose,
@@ -34,11 +55,16 @@ export const CurriculumManagementModal: React.FC<CurriculumManagementModalProps>
   subjects,
   allocations,
   placedLessons,
+  initialAllocations,
   reassignAllocationTeacher,
   updateAllocationHours,
   addCustomAllocation,
   removeCustomAllocation,
+  onExportCurriculum
 }) => {
+  // Navigation Tabs: 'edit' | 'diff' | 'export'
+  const [activeTab, setActiveTab] = useState<'edit' | 'diff' | 'export'>('edit');
+
   const [searchTerm, setSearchTerm] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'teacher' | 'class'>('all');
   const [selectedTeacherFilter, setSelectedTeacherFilter] = useState<string>('');
@@ -58,6 +84,15 @@ export const CurriculumManagementModal: React.FC<CurriculumManagementModalProps>
   const [candidateSearch, setCandidateSearch] = useState('');
   const [transferHours, setTransferHours] = useState<number>(1);
   const [transferType, setTransferType] = useState<'all' | 'partial'>('all');
+
+  // ── Diff & Comparison State ──────────────────────────────────────────────────
+  const [diffSource, setDiffSource] = useState<'initial' | 'uploaded'>('initial');
+  const [uploadedKretaData, setUploadedKretaData] = useState<ParsedData | null>(null);
+  const [uploadedFileName, setUploadedFileName] = useState<string>('');
+  const [diffFilter, setDiffFilter] = useState<'all' | 'changes_only' | 'teacher_only' | 'hours_only' | 'added_only' | 'removed_only'>('changes_only');
+  const [diffSearch, setDiffSearch] = useState('');
+  const [showTeacherHourSummary, setShowTeacherHourSummary] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Lookup maps
   const teacherMap = useMemo(() => new Map(teachers.map(t => [t.id, t])), [teachers]);
@@ -178,74 +213,363 @@ export const CurriculumManagementModal: React.FC<CurriculumManagementModalProps>
         totalPlacedCount: allocPlaced.length,
         fitScore,
         clashes,
-        isAvailableAll,
+        isAvailableAll
       };
     });
 
-    // Sort: 'perfect' first, then 'partial' (descending freeCount), then 'free', then 'clash'
-    const rankMap = { perfect: 0, free: 1, partial: 2, clash: 3 };
     return evals.sort((a, b) => {
-      const rA = rankMap[a.fitScore];
-      const rB = rankMap[b.fitScore];
-      if (rA !== rB) return rA - rB;
-      if (a.fitScore === 'partial' && b.fitScore === 'partial') {
-        if (b.freeCount !== a.freeCount) return b.freeCount - a.freeCount;
-      }
-      return a.teacher.name.localeCompare(b.teacher.name, 'hu-HU');
+      const scoreOrder = { perfect: 0, partial: 1, free: 2, clash: 3 };
+      const sComp = scoreOrder[a.fitScore] - scoreOrder[b.fitScore];
+      if (sComp !== 0) return sComp;
+      return a.totalCurrentHours - b.totalCurrentHours;
     });
-  }, [reassigningAlloc, sortedTeachers, placedLessons, allocations, subjectMap, classMap]);
+  }, [reassigningAlloc, sortedTeachers, allocations, placedLessons, subjectMap, classMap]);
 
-  // Filtered Candidates
   const filteredCandidates = useMemo(() => {
     return candidateEvaluations.filter(c => {
       if (candidateFilter === 'perfect' && c.fitScore !== 'perfect' && c.fitScore !== 'free') return false;
-      if (candidateFilter === 'partial' && c.fitScore !== 'partial') return false;
+      if (candidateFilter === 'partial' && c.fitScore === 'clash') return false;
       if (candidateSearch.trim()) {
-        const query = candidateSearch.toLowerCase().trim();
-        if (!c.teacher.name.toLowerCase().includes(query)) return false;
+        return c.teacher.name.toLowerCase().includes(candidateSearch.toLowerCase().trim());
       }
       return true;
     });
   }, [candidateEvaluations, candidateFilter, candidateSearch]);
 
-  // Active candidate for timetable preview
   const activeCandidate = useMemo(() => {
-    if (!selectedCandidateId) {
-      return filteredCandidates[0] || candidateEvaluations[0] || null;
+    return candidateEvaluations.find(c => c.teacher.id === selectedCandidateId) || candidateEvaluations[0] || null;
+  }, [candidateEvaluations, selectedCandidateId]);
+
+  // ── Handle Upload Kréta TTF File for Comparison ──────────────────────────────
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const binaryStr = event.target?.result;
+        if (!binaryStr) return;
+        const workbook = XLSX.read(binaryStr, { type: 'binary' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+        const parsed = parseTimetableFile(rows);
+        
+        setUploadedKretaData(parsed);
+        setUploadedFileName(file.name);
+        setDiffSource('uploaded');
+        alert(`Sikeresen beolvasva a Kréta tantárgyfelosztás fájl (${file.name})!\n${parsed.teachers.length} pedagógus, ${parsed.allocations.length} tantárgyfelosztási sor.`);
+      } catch (err) {
+        console.error("Hiba a Kréta fájl beolvasása közben:", err);
+        alert("Hiba történt a Kréta tantárgyfelosztás Excel fájl beolvasása közben.");
+      } finally {
+        e.target.value = '';
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  // ── Comparison Engine Calculation ────────────────────────────────────────────
+  const { diffRows, diffStats, teacherHourComparison } = useMemo(() => {
+    // Determine baseline allocations
+    let baseAllocs: Allocation[] = [];
+    let baseTeacherMap = new Map<string, string>();
+    let baseClassMap = new Map<string, string>();
+    let baseSubjectMap = new Map<string, string>();
+
+    if (diffSource === 'uploaded' && uploadedKretaData) {
+      baseAllocs = uploadedKretaData.allocations;
+      uploadedKretaData.teachers.forEach(t => baseTeacherMap.set(t.id, t.name));
+      uploadedKretaData.classes.forEach(c => baseClassMap.set(c.id, c.name));
+      uploadedKretaData.subjects.forEach(s => baseSubjectMap.set(s.id, s.name));
+    } else {
+      baseAllocs = initialAllocations || [];
+      teachers.forEach(t => baseTeacherMap.set(t.id, t.name));
+      classes.forEach(c => baseClassMap.set(c.id, c.name));
+      subjects.forEach(s => baseSubjectMap.set(s.id, s.name));
     }
-    return candidateEvaluations.find(c => c.teacher.id === selectedCandidateId) || filteredCandidates[0] || null;
-  }, [selectedCandidateId, candidateEvaluations, filteredCandidates]);
 
-  // Placed lessons for currently reassigning allocation
-  const currentAllocPlacedLessons = useMemo(() => {
-    if (!reassigningAlloc) return [];
-    return placedLessons.filter(p => p.allocation.id === reassigningAlloc.id);
-  }, [reassigningAlloc, placedLessons]);
+    // Helper to generate a normalized item key
+    const makeItemKey = (alloc: Allocation, cMap: Map<string, string>, sMap: Map<string, string>) => {
+      const origC = alloc.originalClass || '';
+      const origG = alloc.originalGroup || '';
+      const cName = cMap.get(alloc.classId) || '';
+      const sName = sMap.get(alloc.subjectId) || '';
 
-  // Lessons of candidate teacher
-  const candidatePlacedLessons = useMemo(() => {
-    if (!activeCandidate) return [];
-    return placedLessons.filter(p => p.allocation.teacherId === activeCandidate.teacher.id);
-  }, [activeCandidate, placedLessons]);
+      const normC = normalizeClassName(origC || (origG ? '' : cName));
+      const normG = origG || (cName.includes('csoport') ? cName : '');
+      const normS = normalizeSubjectName(sName);
 
-  // Overall Statistics
-  const totalWeeklyHours = useMemo(() => allocations.reduce((sum, a) => sum + a.weeklyHours, 0), [allocations]);
-  const totalPlacedHours = placedLessons.length;
+      return `${normC}###${normG}###${normS}`;
+    };
+
+    // Group base allocations by itemKey
+    interface AllocAgg {
+      teacherName: string;
+      weeklyHours: number;
+      className: string;
+      groupName: string;
+      subjectName: string;
+    }
+
+    const baseMap = new Map<string, AllocAgg[]>();
+    baseAllocs.forEach(a => {
+      const key = makeItemKey(a, baseClassMap, baseSubjectMap);
+      const tName = baseTeacherMap.get(a.teacherId) || 'Ismeretlen tanár';
+      const cName = a.originalClass || baseClassMap.get(a.classId) || '';
+      const gName = a.originalGroup || '';
+      const sName = baseSubjectMap.get(a.subjectId) || '';
+
+      if (!baseMap.has(key)) baseMap.set(key, []);
+      baseMap.get(key)!.push({
+        teacherName: tName,
+        weeklyHours: a.weeklyHours,
+        className: cName,
+        groupName: gName,
+        subjectName: sName
+      });
+    });
+
+    // Group current allocations by itemKey
+    const currentMap = new Map<string, AllocAgg[]>();
+    allocations.forEach(a => {
+      const key = makeItemKey(a, classMap, subjectMap);
+      const tName = teacherMap.get(a.teacherId)?.name || 'Ismeretlen tanár';
+      const cName = a.originalClass || classMap.get(a.classId)?.name || '';
+      const gName = a.originalGroup || '';
+      const sName = subjectMap.get(a.subjectId)?.name || '';
+
+      if (!currentMap.has(key)) currentMap.set(key, []);
+      currentMap.get(key)!.push({
+        teacherName: tName,
+        weeklyHours: a.weeklyHours,
+        className: cName,
+        groupName: gName,
+        subjectName: sName
+      });
+    });
+
+    // All unique keys
+    const allKeys = new Set([...Array.from(baseMap.keys()), ...Array.from(currentMap.keys())]);
+    const rows: DiffRowItem[] = [];
+
+    let teacherChangesCount = 0;
+    let hoursChangesCount = 0;
+    let addedCount = 0;
+    let removedCount = 0;
+
+    allKeys.forEach(key => {
+      const baseItems = baseMap.get(key) || [];
+      const currentItems = currentMap.get(key) || [];
+
+      // Extract sample names
+      const sample = currentItems[0] || baseItems[0];
+      const className = sample?.className || '';
+      const groupName = sample?.groupName || '';
+      const subjectName = sample?.subjectName || '';
+
+      // Check existence
+      if (baseItems.length === 0 && currentItems.length > 0) {
+        // Added in current app
+        addedCount++;
+        currentItems.forEach(ci => {
+          rows.push({
+            key,
+            className,
+            groupName,
+            subjectName,
+            baseTeacherName: '— (Nem szerepel)',
+            baseWeeklyHours: 0,
+            currentTeacherName: ci.teacherName,
+            currentWeeklyHours: ci.weeklyHours,
+            changeType: 'added_in_app',
+            details: `Új felosztás az órarendben: +${ci.weeklyHours} óra (${ci.teacherName})`
+          });
+        });
+        return;
+      }
+
+      if (currentItems.length === 0 && baseItems.length > 0) {
+        // Removed in current app / only in base
+        removedCount++;
+        baseItems.forEach(bi => {
+          rows.push({
+            key,
+            className,
+            groupName,
+            subjectName,
+            baseTeacherName: bi.teacherName,
+            baseWeeklyHours: bi.weeklyHours,
+            currentTeacherName: '— (Törölve)',
+            currentWeeklyHours: 0,
+            changeType: 'removed_in_app',
+            details: `Hiányzik az órarendből: volt ${bi.weeklyHours} óra (${bi.teacherName})`
+          });
+        });
+        return;
+      }
+
+      // Both exist: compare teacher and hours
+      const baseTotalHours = baseItems.reduce((s, i) => s + i.weeklyHours, 0);
+      const currTotalHours = currentItems.reduce((s, i) => s + i.weeklyHours, 0);
+      const baseTeachersStr = baseItems.map(i => i.teacherName).sort().join(', ');
+      const currTeachersStr = currentItems.map(i => i.teacherName).sort().join(', ');
+
+      const isTeacherDiff = baseTeachersStr !== currTeachersStr;
+      const isHoursDiff = baseTotalHours !== currTotalHours;
+
+      if (isTeacherDiff && isHoursDiff) {
+        teacherChangesCount++;
+        hoursChangesCount++;
+        rows.push({
+          key,
+          className,
+          groupName,
+          subjectName,
+          baseTeacherName: `${baseTeachersStr} (${baseTotalHours} óra)`,
+          baseWeeklyHours: baseTotalHours,
+          currentTeacherName: `${currTeachersStr} (${currTotalHours} óra)`,
+          currentWeeklyHours: currTotalHours,
+          changeType: 'teacher_changed',
+          details: `Tanárcsere (${baseTeachersStr} ➔ ${currTeachersStr}) és óraszám módosulás (${baseTotalHours} ➔ ${currTotalHours} óra)`
+        });
+      } else if (isTeacherDiff) {
+        teacherChangesCount++;
+        rows.push({
+          key,
+          className,
+          groupName,
+          subjectName,
+          baseTeacherName: baseTeachersStr,
+          baseWeeklyHours: baseTotalHours,
+          currentTeacherName: currTeachersStr,
+          currentWeeklyHours: currTotalHours,
+          changeType: 'teacher_changed',
+          details: `Tanárcsere: ${baseTeachersStr} ➔ ${currTeachersStr}`
+        });
+      } else if (isHoursDiff) {
+        hoursChangesCount++;
+        rows.push({
+          key,
+          className,
+          groupName,
+          subjectName,
+          baseTeacherName: baseTeachersStr,
+          baseWeeklyHours: baseTotalHours,
+          currentTeacherName: currTeachersStr,
+          currentWeeklyHours: currTotalHours,
+          changeType: 'hours_changed',
+          details: `Óraszám változás: ${baseTotalHours} óra ➔ ${currTotalHours} óra (${currTotalHours > baseTotalHours ? '+' : ''}${currTotalHours - baseTotalHours} óra)`
+        });
+      } else {
+        rows.push({
+          key,
+          className,
+          groupName,
+          subjectName,
+          baseTeacherName: baseTeachersStr,
+          baseWeeklyHours: baseTotalHours,
+          currentTeacherName: currTeachersStr,
+          currentWeeklyHours: currTotalHours,
+          changeType: 'identical',
+          details: 'Változatlan'
+        });
+      }
+    });
+
+    // Calculate teacher total weekly hours comparison
+    const teacherHoursMap: Record<string, { teacherName: string; baseHours: number; currentHours: number; delta: number }> = {};
+
+    teachers.forEach(t => {
+      teacherHoursMap[t.name] = {
+        teacherName: t.name,
+        baseHours: 0,
+        currentHours: 0,
+        delta: 0
+      };
+    });
+
+    baseAllocs.forEach(a => {
+      const tName = baseTeacherMap.get(a.teacherId) || 'Ismeretlen';
+      if (!teacherHoursMap[tName]) {
+        teacherHoursMap[tName] = { teacherName: tName, baseHours: 0, currentHours: 0, delta: 0 };
+      }
+      teacherHoursMap[tName].baseHours += a.weeklyHours;
+    });
+
+    allocations.forEach(a => {
+      const tName = teacherMap.get(a.teacherId)?.name || 'Ismeretlen';
+      if (!teacherHoursMap[tName]) {
+        teacherHoursMap[tName] = { teacherName: tName, baseHours: 0, currentHours: 0, delta: 0 };
+      }
+      teacherHoursMap[tName].currentHours += a.weeklyHours;
+    });
+
+    Object.values(teacherHoursMap).forEach(item => {
+      item.delta = item.currentHours - item.baseHours;
+    });
+
+    const sortedTeacherHourList = Object.values(teacherHoursMap)
+      .filter(i => i.baseHours > 0 || i.currentHours > 0)
+      .sort((a, b) => {
+        if (Math.abs(b.delta) !== Math.abs(a.delta)) {
+          return Math.abs(b.delta) - Math.abs(a.delta);
+        }
+        return a.teacherName.localeCompare(b.teacherName, 'hu-HU');
+      });
+
+    return {
+      diffRows: rows.sort((a, b) => {
+        const typePriority = { teacher_changed: 0, hours_changed: 1, added_in_app: 2, removed_in_app: 3, identical: 4 };
+        const pComp = typePriority[a.changeType] - typePriority[b.changeType];
+        if (pComp !== 0) return pComp;
+        const cComp = a.className.localeCompare(b.className, 'hu-HU');
+        if (cComp !== 0) return cComp;
+        return a.subjectName.localeCompare(b.subjectName, 'hu-HU');
+      }),
+      diffStats: {
+        totalChanges: teacherChangesCount + hoursChangesCount + addedCount + removedCount,
+        teacherChangesCount,
+        hoursChangesCount,
+        addedCount,
+        removedCount
+      },
+      teacherHourComparison: sortedTeacherHourList
+    };
+  }, [diffSource, uploadedKretaData, initialAllocations, allocations, teachers, classes, subjects, teacherMap, classMap, subjectMap]);
+
+  // Filtered diff rows for display
+  const displayedDiffRows = useMemo(() => {
+    return diffRows.filter(row => {
+      if (diffFilter === 'changes_only' && row.changeType === 'identical') return false;
+      if (diffFilter === 'teacher_only' && row.changeType !== 'teacher_changed') return false;
+      if (diffFilter === 'hours_only' && row.changeType !== 'hours_changed') return false;
+      if (diffFilter === 'added_only' && row.changeType !== 'added_in_app') return false;
+      if (diffFilter === 'removed_only' && row.changeType !== 'removed_in_app') return false;
+
+      if (diffSearch.trim()) {
+        const query = diffSearch.toLowerCase().trim();
+        const matchesClass = row.className.toLowerCase().includes(query) || row.groupName.toLowerCase().includes(query);
+        const matchesSubject = row.subjectName.toLowerCase().includes(query);
+        const matchesTeacher = row.baseTeacherName.toLowerCase().includes(query) || row.currentTeacherName.toLowerCase().includes(query);
+        if (!matchesClass && !matchesSubject && !matchesTeacher) return false;
+      }
+
+      return true;
+    });
+  }, [diffRows, diffFilter, diffSearch]);
 
   if (!isOpen) return null;
+
+  const totalWeeklyHours = allocations.reduce((sum, a) => sum + a.weeklyHours, 0);
+  const totalPlacedHours = placedLessons.length;
 
   const handleStartReassign = (alloc: Allocation) => {
     setReassigningAlloc(alloc);
     setTransferHours(alloc.weeklyHours);
     setTransferType('all');
-    setCandidateFilter('all');
-    setCandidateSearch('');
-    // Auto-select first best candidate
-    const allocPlaced = placedLessons.filter(p => p.allocation.id === alloc.id);
-    const firstTarget = sortedTeachers.find(t => t.id !== alloc.teacherId);
-    if (firstTarget) {
-      setSelectedCandidateId(firstTarget.id);
-    }
+    setSelectedCandidateId('');
   };
 
   const handleConfirmReassign = () => {
@@ -295,615 +619,325 @@ export const CurriculumManagementModal: React.FC<CurriculumManagementModalProps>
             <span className="text-2xl sm:text-3xl">📚</span>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">Tantárgyfelosztás Kezelő és Módosító</h2>
+                <h2 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">Tantárgyfelosztás Kezelő és Exportáló</h2>
                 <span className="px-2 py-0.5 text-xs font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300 rounded-md">
-                  v3.1.0
+                  v3.1.0 (Kréta export & Diff)
                 </span>
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                {reassigningAlloc 
-                  ? 'Intelligens pedagóguscsere és vizuális órarend-illeszkedés vizsgálata'
-                  : 'Pedagógusok közötti óracsere, óraszám-változtatás és új tantárgyak hozzáadása az órarend megőrzésével.'}
+                Pedagóguscsere, óraszám-módosítás, eredeti és Kréta állapotok összehasonlítása, valamint kereszttáblás Kréta import export.
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            {reassigningAlloc ? (
+          <div className="flex items-center gap-2">
+            {/* Tab Navigation */}
+            <div className="flex bg-gray-200 dark:bg-gray-700 p-1 rounded-xl gap-1 text-xs font-bold">
               <button
-                onClick={() => setReassigningAlloc(null)}
-                className="px-3.5 py-1.5 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold text-xs rounded-xl transition-colors flex items-center gap-1.5"
+                onClick={() => { setActiveTab('edit'); setReassigningAlloc(null); }}
+                className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
+                  activeTab === 'edit'
+                    ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-xs'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                }`}
               >
-                <span>← Vissza a listához</span>
+                <span>📋 Szerkesztés</span>
               </button>
-            ) : (
               <button
-                onClick={() => setIsAddFormOpen(!isAddFormOpen)}
-                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
+                onClick={() => { setActiveTab('diff'); setReassigningAlloc(null); }}
+                className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 relative ${
+                  activeTab === 'diff'
+                    ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-xs'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                }`}
               >
-                <span>{isAddFormOpen ? '✖ Bezárás' : '➕ Új tantárgyfelosztás'}</span>
+                <span>🔍 Összehasonlítás (Diff)</span>
+                {diffStats.totalChanges > 0 && (
+                  <span className="px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[10px]">
+                    {diffStats.totalChanges}
+                  </span>
+                )}
               </button>
-            )}
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl font-bold p-1">
-              &times;
+              <button
+                onClick={() => { setActiveTab('export'); setReassigningAlloc(null); }}
+                className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
+                  activeTab === 'export'
+                    ? 'bg-white dark:bg-gray-800 text-cyan-600 dark:text-cyan-400 shadow-xs'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                <span>📤 Kréta Export</span>
+              </button>
+            </div>
+
+            <button
+              onClick={onClose}
+              className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-lg text-lg ml-2"
+            >
+              ✕
             </button>
           </div>
         </div>
 
-        {/* ══════════════════════════════════════════════════════════════════════════ */}
-        {/* ── SMART REASSIGNMENT VIEW WITH VISUAL TIMETABLE PREVIEW ──────────────── */}
-        {/* ══════════════════════════════════════════════════════════════════════════ */}
-        {reassigningAlloc ? (
-          <div className="flex-1 flex flex-col min-h-0 bg-gray-50/50 dark:bg-gray-900/50 overflow-hidden">
-            {/* Top Allocation Banner */}
-            <div className="px-6 py-3 bg-blue-50 dark:bg-blue-950/40 border-b border-blue-200 dark:border-blue-800/60 flex flex-wrap items-center justify-between gap-3 shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center text-xl font-bold shadow-xs">
-                  🔄
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-gray-900 dark:text-white">
-                      {subjectMap.get(reassigningAlloc.subjectId)?.name || 'Tantárgy'}
-                    </span>
-                    <span className="px-2 py-0.5 text-xs font-bold bg-white dark:bg-gray-800 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700 rounded-md">
-                      {classMap.get(reassigningAlloc.classId)?.name || 'Osztály'}
-                    </span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">
-                      (Jelenlegi pedagógus: <b>{teacherMap.get(reassigningAlloc.teacherId)?.name}</b>)
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 text-xs text-gray-600 dark:text-gray-300 mt-0.5">
-                    <span>⏱️ Heti óraszám: <b>{reassigningAlloc.weeklyHours} óra</b></span>
-                    <span>•</span>
-                    <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
-                      📅 Órarendbe beosztva: <b>{currentAllocPlacedLessons.length} óra</b> (ezek időpontjai fixen megmaradnak)
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Transfer Mode Selector */}
-              <div className="flex items-center gap-2 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-xl border border-gray-300 dark:border-gray-600 text-xs shadow-2xs">
-                <label className="flex items-center gap-1.5 cursor-pointer font-semibold text-gray-800 dark:text-gray-200">
-                  <input
-                    type="radio"
-                    name="transferScope"
-                    checked={transferType === 'all'}
-                    onChange={() => setTransferType('all')}
-                    className="text-blue-600"
-                  />
-                  <span>Mind a {reassigningAlloc.weeklyHours} óra átadása</span>
-                </label>
-
-                {reassigningAlloc.weeklyHours > 1 && (
-                  <>
-                    <span className="text-gray-300 dark:text-gray-600">|</span>
-                    <label className="flex items-center gap-1.5 cursor-pointer font-semibold text-gray-800 dark:text-gray-200">
-                      <input
-                        type="radio"
-                        name="transferScope"
-                        checked={transferType === 'partial'}
-                        onChange={() => setTransferType('partial')}
-                        className="text-blue-600"
-                      />
-                      <span>Részleges átadás:</span>
-                    </label>
-                    {transferType === 'partial' && (
-                      <div className="inline-flex items-center gap-1">
-                        <input
-                          type="number"
-                          min="1"
-                          max={reassigningAlloc.weeklyHours - 1}
-                          value={transferHours}
-                          onChange={e => setTransferHours(Math.max(1, Math.min(reassigningAlloc.weeklyHours - 1, parseInt(e.target.value, 10) || 1)))}
-                          className="w-12 px-1.5 py-0.5 text-center font-bold border border-blue-400 rounded bg-blue-50 dark:bg-gray-700 text-blue-900 dark:text-white"
-                        />
-                        <span className="font-semibold text-gray-600 dark:text-gray-400">óra</span>
+        {/* ── TAB 1: Szerkesztés & Tanárcsere ── */}
+        {activeTab === 'edit' && (
+          <>
+            {/* Reassignment / Candidate View */}
+            {reassigningAlloc ? (
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-gray-50/50 dark:bg-gray-900/30">
+                {/* Top Reassign Banner */}
+                <div className="p-4 bg-blue-50 dark:bg-blue-950/40 border-b border-blue-100 dark:border-blue-900/50 flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setReassigningAlloc(null)}
+                      className="px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-xs font-bold rounded-lg hover:bg-gray-50"
+                    >
+                      ← Vissza
+                    </button>
+                    <div>
+                      <div className="text-xs font-bold text-blue-800 dark:text-blue-300 uppercase">
+                        Kiválasztott tantárgyfelosztási sor átadása:
                       </div>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Split Content: Left Candidates List, Right Visual Timetable Preview */}
-            <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 divide-y lg:divide-y-0 lg:divide-x divide-gray-200 dark:divide-gray-700">
-              
-              {/* ── Left Column: Candidate Teachers List (col-span-5) ── */}
-              <div className="lg:col-span-5 flex flex-col min-h-0 bg-white dark:bg-gray-850">
-                {/* Candidates Filter & Search */}
-                <div className="p-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-800/40 space-y-2 shrink-0">
-                  <div className="relative">
-                    <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 pointer-events-none text-gray-400 text-xs">🔍</span>
-                    <input
-                      type="text"
-                      value={candidateSearch}
-                      onChange={e => setCandidateSearch(e.target.value)}
-                      placeholder="Pedagógus keresése..."
-                      className="w-full pl-8 pr-3 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                    />
-                    {candidateSearch && (
-                      <button onClick={() => setCandidateSearch('')} className="absolute inset-y-0 right-0 flex items-center pr-2.5 text-gray-400 text-xs">✕</button>
-                    )}
+                      <div className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                        <span>{teacherMap.get(reassigningAlloc.teacherId)?.name}</span>
+                        <span>➔</span>
+                        <span className="text-blue-600 dark:text-blue-400">{classMap.get(reassigningAlloc.classId)?.name}</span>
+                        <span>•</span>
+                        <span>{subjectMap.get(reassigningAlloc.subjectId)?.name}</span>
+                        <span className="text-sm font-semibold text-gray-500">({reassigningAlloc.weeklyHours} heti óra)</span>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5 text-[11px] font-semibold">
-                    <button
-                      onClick={() => setCandidateFilter('all')}
-                      className={`px-2.5 py-1 rounded-lg transition-all ${
-                        candidateFilter === 'all'
-                          ? 'bg-blue-600 text-white font-bold shadow-xs'
-                          : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                      }`}
-                    >
-                      Mindenki ({candidateEvaluations.length})
-                    </button>
-                    <button
-                      onClick={() => setCandidateFilter('perfect')}
-                      className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 ${
-                        candidateFilter === 'perfect'
-                          ? 'bg-emerald-600 text-white font-bold shadow-xs'
-                          : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                      }`}
-                    >
-                      <span>🟢</span>
-                      <span>100% Szabad ({candidateEvaluations.filter(c => c.fitScore === 'perfect' || c.fitScore === 'free').length})</span>
-                    </button>
-                    {candidateEvaluations.some(c => c.fitScore === 'partial') && (
+                  {activeCandidate && (
+                    <div className="flex items-center gap-3 bg-white dark:bg-gray-800 p-2 rounded-xl border border-blue-200 dark:border-blue-800">
+                      <div className="text-xs">
+                        <span className="text-gray-500">Átadandó óraszám: </span>
+                        <select
+                          value={transferType}
+                          onChange={e => setTransferType(e.target.value as any)}
+                          className="bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 font-bold text-xs"
+                        >
+                          <option value="all">Minden óra ({reassigningAlloc.weeklyHours} óra)</option>
+                          <option value="partial">Részleges átadás</option>
+                        </select>
+                        {transferType === 'partial' && (
+                          <input
+                            type="number"
+                            min={1}
+                            max={reassigningAlloc.weeklyHours - 1}
+                            value={transferHours}
+                            onChange={e => setTransferHours(parseInt(e.target.value, 10) || 1)}
+                            className="w-14 ml-2 p-1 border rounded text-xs text-center font-bold"
+                          />
+                        )}
+                      </div>
                       <button
-                        onClick={() => setCandidateFilter('partial')}
-                        className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 ${
-                          candidateFilter === 'partial'
-                            ? 'bg-amber-600 text-white font-bold shadow-xs'
-                            : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
-                        }`}
+                        type="button"
+                        onClick={handleConfirmReassign}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-all shadow-xs flex items-center gap-1"
                       >
-                        <span>🟡</span>
-                        <span>Részben jó ({candidateEvaluations.filter(c => c.fitScore === 'partial').length})</span>
+                        <span>✓ Átadás jóváhagyása ({activeCandidate.teacher.name})</span>
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
 
-                {/* Candidate List Scrollable */}
-                <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                  {filteredCandidates.length === 0 ? (
-                    <div className="text-center py-12 text-gray-400">
-                      <span className="text-3xl block mb-1">🔍</span>
-                      <p className="text-xs font-semibold">Nincs a szűrésnek megfelelő kolléga.</p>
+                {/* Candidate Selection List */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="text-xs font-bold text-gray-600 dark:text-gray-400">
+                      Válassz átvevő pedagógust ({filteredCandidates.length} találat):
                     </div>
-                  ) : (
-                    filteredCandidates.map(cand => {
-                      const isSelected = activeCandidate?.teacher.id === cand.teacher.id;
-                      const addedHours = transferType === 'all' ? reassigningAlloc.weeklyHours : transferHours;
-                      const nextHours = cand.totalCurrentHours + addedHours;
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="Pedagógus keresése..."
+                        value={candidateSearch}
+                        onChange={e => setCandidateSearch(e.target.value)}
+                        className="px-3 py-1.5 border rounded-lg text-xs bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                      <select
+                        value={candidateFilter}
+                        onChange={e => setCandidateFilter(e.target.value as any)}
+                        className="px-2.5 py-1.5 border rounded-lg text-xs bg-white dark:bg-gray-800"
+                      >
+                        <option value="all">Minden pedagógus</option>
+                        <option value="perfect">Csak ütközésmentesek</option>
+                        <option value="partial">Részben ráérők</option>
+                      </select>
+                    </div>
+                  </div>
 
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {filteredCandidates.map(candidate => {
+                      const isSelected = (activeCandidate?.teacher.id === candidate.teacher.id);
                       return (
                         <div
-                          key={cand.teacher.id}
-                          onClick={() => setSelectedCandidateId(cand.teacher.id)}
-                          className={`p-3 rounded-xl border transition-all cursor-pointer text-xs ${
+                          key={candidate.teacher.id}
+                          onClick={() => setSelectedCandidateId(candidate.teacher.id)}
+                          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
                             isSelected
-                              ? 'bg-blue-50/90 dark:bg-blue-950/60 border-blue-500 shadow-md ring-2 ring-blue-400/40'
-                              : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-xs'
+                              ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/60 ring-2 ring-blue-400 shadow-sm'
+                              : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-300'
                           }`}
                         >
                           <div className="flex items-center justify-between mb-1.5">
-                            <div className="flex items-center gap-2">
-                              <span className={`w-3.5 h-3.5 rounded-full ${cand.teacher.color || 'bg-blue-400'}`} />
-                              <span className="font-bold text-gray-900 dark:text-white text-sm">
-                                {cand.teacher.name}
-                              </span>
-                            </div>
-
-                            {/* Fit Badge */}
-                            {cand.fitScore === 'perfect' || cand.fitScore === 'free' ? (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 flex items-center gap-1 border border-emerald-300 dark:border-emerald-700">
-                                <span>🟢</span>
-                                <span>100% Illeszkedik ({cand.freeCount}/{cand.totalPlacedCount})</span>
-                              </span>
-                            ) : cand.fitScore === 'partial' ? (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 flex items-center gap-1 border border-amber-300 dark:border-amber-700">
-                                <span>🟡</span>
-                                <span>Részben ({cand.freeCount}/{cand.totalPlacedCount} óra)</span>
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300 flex items-center gap-1 border border-red-300 dark:border-red-700">
-                                <span>🔴</span>
-                                <span>Ütközik (0/{cand.totalPlacedCount})</span>
+                            <span className="font-bold text-sm text-gray-900 dark:text-white">{candidate.teacher.name}</span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              candidate.fitScore === 'perfect' || candidate.fitScore === 'free'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
+                                : candidate.fitScore === 'partial'
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'
+                                : 'bg-red-100 text-red-800 dark:bg-red-900/60 dark:text-red-300'
+                            }`}>
+                              {candidate.fitScore === 'perfect' || candidate.fitScore === 'free'
+                                ? '✓ Tökéletesen ráér'
+                                : candidate.fitScore === 'partial'
+                                ? `⚠️ ${candidate.freeCount}/${candidate.totalPlacedCount} időpont jó`
+                                : `❌ ${candidate.clashes.length} ütközés`}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center justify-between">
+                            <span>Jelenlegi óraszáma: <strong>{candidate.totalCurrentHours} óra</strong></span>
+                            {candidate.clashes.length > 0 && (
+                              <span className="text-red-500 text-[11px] truncate max-w-[150px]" title={candidate.clashes.map(c => c.reason).join(', ')}>
+                                {candidate.clashes[0].reason}
                               </span>
                             )}
                           </div>
-
-                          <div className="flex items-center justify-between text-[11px] text-gray-600 dark:text-gray-300">
-                            <div>
-                              <span>Heti terhelés: </span>
-                              <span className="font-bold text-gray-800 dark:text-gray-200">{cand.totalCurrentHours} óra</span>
-                              <span className="text-blue-600 dark:text-blue-400 font-bold ml-1">➔ {nextHours} óra</span>
-                            </div>
-
-                            <span className="text-blue-600 dark:text-blue-400 font-semibold underline text-[11px]">
-                              {isSelected ? 'Órarend megnyitva 👉' : 'Órarend megtekintése'}
-                            </span>
-                          </div>
-
-                          {/* Clashes Details if any */}
-                          {cand.clashes.length > 0 && (
-                            <div className="mt-2 pt-2 border-t border-gray-100 dark:border-gray-700/60 space-y-1">
-                              {cand.clashes.map((c, idx) => (
-                                <div key={idx} className="text-[10px] text-red-600 dark:text-red-400 flex items-center gap-1 font-medium">
-                                  <span>⚠️</span>
-                                  <span>{DAYS_OF_WEEK[c.day]} {c.period + 1}. óra: {c.reason}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
                         </div>
                       );
-                    })
-                  )}
+                    })}
+                  </div>
                 </div>
               </div>
-
-              {/* ── Right Column: Visual Timetable Preview (col-span-7) ── */}
-              <div className="lg:col-span-7 flex flex-col min-h-0 bg-gray-50/50 dark:bg-gray-900/40 p-4">
-                {activeCandidate ? (
-                  <div className="flex-1 flex flex-col min-h-0">
-                    {/* Timetable Header */}
-                    <div className="flex items-center justify-between mb-3 shrink-0">
-                      <div className="flex items-center gap-2">
-                        <span className={`w-3.5 h-3.5 rounded-full ${activeCandidate.teacher.color || 'bg-blue-400'}`} />
-                        <div>
-                          <h3 className="font-bold text-gray-900 dark:text-white text-sm">
-                            {activeCandidate.teacher.name} heti órarendje (Szimulált előnézet)
-                          </h3>
-                          <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                            A zöld keretes kártyák jelzik, hova kerülnének az új órák a tanár naptárában.
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Legend */}
-                      <div className="flex items-center gap-2 text-[10px] font-semibold">
-                        <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-400 rounded">
-                          ✨ Új átvett óra
-                        </span>
-                        <span className="px-2 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded">
-                          Meglévő óra
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* 5-Day Weekly Matrix Table */}
-                    <div className="flex-1 border border-gray-200 dark:border-gray-700 rounded-xl overflow-auto bg-white dark:bg-gray-850 shadow-xs">
-                      <table className="border-separate border-spacing-0 w-full text-xs text-center table-fixed">
-                        <thead>
-                          <tr className="bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
-                            <th className="sticky top-0 z-20 border-b border-gray-300 dark:border-gray-600 p-2 font-bold w-12 bg-gray-100 dark:bg-gray-800">Óra</th>
-                            {DAYS_OF_WEEK.map((dayName, dIdx) => (
-                              <th key={dIdx} className="sticky top-0 z-20 border-b border-gray-300 dark:border-gray-600 p-2 font-bold bg-gray-100 dark:bg-gray-800">
-                                {dayName}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                          {[0, 1, 2, 3, 4, 5, 6, 7].map(period => (
-                            <tr key={period} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40">
-                              {/* Period Number */}
-                              <td className="p-1.5 font-bold text-gray-500 dark:text-gray-400 border-r border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30">
-                                {period + 1}.
-                              </td>
-
-                              {/* Days 0..4 */}
-                              {[0, 1, 2, 3, 4].map(day => {
-                                const isTargetSlot = currentAllocPlacedLessons.some(p => p.day === day && p.period === period);
-                                const existingLesson = candidatePlacedLessons.find(p => p.day === day && p.period === period);
-                                const isAvailable = activeCandidate.teacher.availability?.[day]?.[period] ?? true;
-
-                                if (isTargetSlot) {
-                                  if (existingLesson) {
-                                    // Collision
-                                    const colSubject = subjectMap.get(existingLesson.allocation.subjectId)?.name || 'Óra';
-                                    const colClass = classMap.get(existingLesson.allocation.classId)?.name || 'Osztály';
-                                    const targetSubject = subjectMap.get(reassigningAlloc.subjectId)?.name || 'Új óra';
-                                    return (
-                                      <td key={day} className="p-1 border-r border-gray-200 dark:border-gray-700 bg-red-50 dark:bg-red-950/40">
-                                        <div className="p-1.5 bg-red-100 dark:bg-red-900/60 border-2 border-red-500 rounded-lg text-left shadow-xs">
-                                          <div className="text-[9px] font-bold text-red-700 dark:text-red-200 flex items-center gap-0.5">
-                                            <span>⚠️ ÜTKÖZÉS</span>
-                                          </div>
-                                          <div className="font-bold text-red-900 dark:text-white truncate text-[11px]">
-                                            {colSubject} ({colClass})
-                                          </div>
-                                          <div className="text-[9px] text-red-800 dark:text-red-300 font-semibold truncate">
-                                            + {targetSubject}
-                                          </div>
-                                        </div>
-                                      </td>
-                                    );
-                                  } else if (!isAvailable) {
-                                    // Unavailable slot
-                                    return (
-                                      <td key={day} className="p-1 border-r border-gray-200 dark:border-gray-700 bg-amber-50 dark:bg-amber-950/40">
-                                        <div className="p-1.5 bg-amber-100 dark:bg-amber-900/50 border border-amber-400 rounded-lg text-left">
-                                          <div className="text-[9px] font-bold text-amber-800 dark:text-amber-200">
-                                            🚫 Nem elérhető
-                                          </div>
-                                          <div className="text-[10px] font-semibold text-amber-900 dark:text-amber-100 truncate">
-                                            {subjectMap.get(reassigningAlloc.subjectId)?.name}
-                                          </div>
-                                        </div>
-                                      </td>
-                                    );
-                                  } else {
-                                    // Perfect Fit Target Slot!
-                                    const targetSubject = subjectMap.get(reassigningAlloc.subjectId)?.name || 'Tantárgy';
-                                    const targetClass = classMap.get(reassigningAlloc.classId)?.name || 'Osztály';
-                                    return (
-                                      <td key={day} className="p-1 border-r border-gray-200 dark:border-gray-700 bg-emerald-50/80 dark:bg-emerald-950/40">
-                                        <div className="p-1.5 bg-emerald-100 dark:bg-emerald-900/80 border-2 border-emerald-500 dark:border-emerald-400 rounded-lg text-left shadow-xs animate-pulse">
-                                          <div className="text-[9px] font-bold text-emerald-800 dark:text-emerald-200 flex items-center gap-0.5">
-                                            <span>✨ ÚJ ÓRA</span>
-                                          </div>
-                                          <div className="font-bold text-emerald-950 dark:text-white truncate text-[11px]">
-                                            {targetSubject}
-                                          </div>
-                                          <div className="text-[10px] text-emerald-800 dark:text-emerald-300 font-semibold truncate">
-                                            {targetClass}
-                                          </div>
-                                        </div>
-                                      </td>
-                                    );
-                                  }
-                                }
-
-                                if (existingLesson) {
-                                  // Existing lesson of candidate teacher
-                                  const exSubject = subjectMap.get(existingLesson.allocation.subjectId)?.name || 'Óra';
-                                  const exClass = classMap.get(existingLesson.allocation.classId)?.name || 'Osztály';
-                                  return (
-                                    <td key={day} className="p-1 border-r border-gray-200 dark:border-gray-700">
-                                      <div className="p-1.5 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-left">
-                                        <div className="font-semibold text-gray-900 dark:text-gray-100 truncate text-[11px]">
-                                          {exSubject}
-                                        </div>
-                                        <div className="text-[10px] text-gray-500 dark:text-gray-400 font-medium truncate">
-                                          {exClass}
-                                        </div>
-                                      </div>
-                                    </td>
-                                  );
-                                }
-
-                                if (!isAvailable) {
-                                  // Unavailable normal slot
-                                  return (
-                                    <td key={day} className="p-1 border-r border-gray-200 dark:border-gray-700 bg-gray-100/50 dark:bg-gray-800/30">
-                                      <span className="text-[10px] text-gray-400 font-semibold">—</span>
-                                    </td>
-                                  );
-                                }
-
-                                // Empty slot
-                                return (
-                                  <td key={day} className="p-1 border-r border-gray-200 dark:border-gray-700">
-                                    <div className="h-9 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50" />
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* Action Bar */}
-                    <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0">
-                      <div className="text-xs text-gray-600 dark:text-gray-300">
-                        <span>Kiválasztva: </span>
-                        <b className="text-gray-900 dark:text-white">{activeCandidate.teacher.name}</b>
-                        {activeCandidate.fitScore === 'perfect' || activeCandidate.fitScore === 'free' ? (
-                          <span className="text-emerald-600 dark:text-emerald-400 font-bold ml-2">✓ 100%-ban szabad, 0 ütközés</span>
-                        ) : activeCandidate.fitScore === 'partial' ? (
-                          <span className="text-amber-600 dark:text-amber-400 font-bold ml-2">⚠️ Részleges illeszkedés ({activeCandidate.freeCount}/{activeCandidate.totalPlacedCount})</span>
-                        ) : (
-                          <span className="text-red-600 dark:text-red-400 font-bold ml-2">⚠️ Ütközések vannak az órarendjében</span>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setReassigningAlloc(null)}
-                          className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 text-gray-800 dark:text-gray-200 font-semibold rounded-xl text-xs"
-                        >
-                          Mégse
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleConfirmReassign}
-                          className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5"
-                        >
-                          <span>✓ Átadás</span>
-                          <span>{activeCandidate.teacher.name} részére</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex-1 flex items-center justify-center text-gray-400">
-                    <p className="text-xs font-semibold">Válassz ki egy pedagógust a bal oldali listából az órarendi előnézethez.</p>
-                  </div>
-                )}
-              </div>
-
-            </div>
-          </div>
-        ) : (
-          /* ══════════════════════════════════════════════════════════════════════════ */
-          /* ── MAIN ALLOCATIONS TABLE VIEW ────────────────────────────────────────── */
-          /* ══════════════════════════════════════════════════════════════════════════ */
-          <>
-            {/* Quick Add Form */}
-            {isAddFormOpen && (
-              <form onSubmit={handleAddNewAllocation} className="px-6 py-4 bg-emerald-50/80 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-800 shrink-0">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-bold text-emerald-900 dark:text-emerald-200 flex items-center gap-1">
-                    <span>➕</span> Új tantárgyfelosztási tétel rögzítése:
-                  </h3>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-gray-700 dark:text-gray-300 mb-1">Pedagógus:</label>
-                    <select
-                      value={newTeacherId}
-                      onChange={e => setNewTeacherId(e.target.value)}
-                      className="w-full px-3 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white"
-                      required
-                    >
-                      <option value="">-- Válassz tanárt --</option>
-                      {sortedTeachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-gray-700 dark:text-gray-300 mb-1">Osztály:</label>
-                    <select
-                      value={newClassId}
-                      onChange={e => setNewClassId(e.target.value)}
-                      className="w-full px-3 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white"
-                      required
-                    >
-                      <option value="">-- Válassz osztályt --</option>
-                      {sortedClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-gray-700 dark:text-gray-300 mb-1">Tantárgy:</label>
+            ) : (
+              /* Regular Allocations List */
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden p-6 space-y-4">
+                {/* Search & Action Bar */}
+                <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
+                  <div className="flex items-center gap-2 flex-1 min-w-[280px]">
                     <input
                       type="text"
-                      list="subjects-datalist"
-                      placeholder="Pl. Matematika, Ének..."
-                      value={newSubjectInput}
-                      onChange={e => setNewSubjectInput(e.target.value)}
-                      className="w-full px-3 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white"
-                      required
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                      placeholder="Keresés pedagógus, osztály vagy tantárgy alapján..."
+                      className="w-full px-3.5 py-2 text-sm bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
                     />
-                    <datalist id="subjects-datalist">
-                      {sortedSubjects.map(s => <option key={s.id} value={s.name} />)}
-                    </datalist>
                   </div>
 
-                  <div className="flex items-end gap-2">
-                    <div className="w-24">
-                      <label className="block text-[11px] font-bold text-gray-700 dark:text-gray-300 mb-1">Heti óraszám:</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="40"
-                        value={newWeeklyHours}
-                        onChange={e => setNewWeeklyHours(parseInt(e.target.value, 10) || 1)}
-                        className="w-full px-3 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white font-bold"
-                        required
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-colors shadow-xs"
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={filterMode === 'teacher' ? selectedTeacherFilter : filterMode === 'class' ? selectedClassFilter : 'all'}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (val === 'all') {
+                          setFilterMode('all');
+                          setSelectedTeacherFilter('');
+                          setSelectedClassFilter('');
+                        } else if (val.startsWith('t_')) {
+                          setFilterMode('teacher');
+                          setSelectedTeacherFilter(val.replace('t_', ''));
+                          setSelectedClassFilter('');
+                        } else if (val.startsWith('c_')) {
+                          setFilterMode('class');
+                          setSelectedClassFilter(val.replace('c_', ''));
+                          setSelectedTeacherFilter('');
+                        }
+                      }}
+                      className="px-3 py-2 text-xs font-semibold bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-xl"
                     >
-                      Hozzáadás
+                      <option value="all">Minden felosztás</option>
+                      <optgroup label="Pedagógus szerint">
+                        {sortedTeachers.map(t => (
+                          <option key={t.id} value={`t_${t.id}`}>{t.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Osztály szerint">
+                        {sortedClasses.map(c => (
+                          <option key={c.id} value={`c_${c.id}`}>{c.name}</option>
+                        ))}
+                      </optgroup>
+                    </select>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsAddFormOpen(prev => !prev)}
+                      className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5 shadow-xs"
+                    >
+                      <span>{isAddFormOpen ? '✕ Mégse' : '➕ Új felosztás hozzáadása'}</span>
                     </button>
                   </div>
                 </div>
-              </form>
-            )}
 
-            {/* Toolbar: Search & Filters */}
-            <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/40 flex flex-wrap items-center justify-between gap-3 shrink-0">
-              <div className="flex items-center gap-2 flex-1 min-w-[240px] max-w-md">
-                <div className="relative w-full">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400 text-sm">🔍</span>
-                  <input
-                    type="text"
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                    placeholder="Keresés tanár, osztály vagy tantárgy alapján..."
-                    className="w-full pl-9 pr-3 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  />
-                  {searchTerm && (
-                    <button onClick={() => setSearchTerm('')} className="absolute inset-y-0 right-0 flex items-center pr-2.5 text-gray-400 hover:text-gray-600 text-xs">✕</button>
-                  )}
-                </div>
-              </div>
+                {/* Add New Allocation Form */}
+                {isAddFormOpen && (
+                  <form onSubmit={handleAddNewAllocation} className="p-4 bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-2xl flex flex-wrap items-center gap-3">
+                    <select
+                      value={newTeacherId}
+                      onChange={e => setNewTeacherId(e.target.value)}
+                      className="px-3 py-1.5 text-xs bg-white dark:bg-gray-800 border rounded-lg font-medium"
+                      required
+                    >
+                      <option value="">Válassz pedagógust...</option>
+                      {sortedTeachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
 
-              <div className="flex items-center gap-2">
-                <div className="flex items-center bg-gray-200 dark:bg-gray-700 p-1 rounded-xl text-xs font-semibold">
-                  <button
-                    onClick={() => setFilterMode('all')}
-                    className={`px-3 py-1 rounded-lg transition-all ${filterMode === 'all' ? 'bg-white dark:bg-gray-850 text-blue-600 dark:text-blue-400 font-bold shadow-xs' : 'text-gray-600 dark:text-gray-300'}`}
-                  >
-                    Összes ({allocations.length})
-                  </button>
-                  <button
-                    onClick={() => { setFilterMode('teacher'); if (!selectedTeacherFilter && sortedTeachers[0]) setSelectedTeacherFilter(sortedTeachers[0].id); }}
-                    className={`px-3 py-1 rounded-lg transition-all ${filterMode === 'teacher' ? 'bg-white dark:bg-gray-850 text-blue-600 dark:text-blue-400 font-bold shadow-xs' : 'text-gray-600 dark:text-gray-300'}`}
-                  >
-                    Tanár szerint
-                  </button>
-                  <button
-                    onClick={() => { setFilterMode('class'); if (!selectedClassFilter && sortedClasses[0]) setSelectedClassFilter(sortedClasses[0].id); }}
-                    className={`px-3 py-1 rounded-lg transition-all ${filterMode === 'class' ? 'bg-white dark:bg-gray-850 text-blue-600 dark:text-blue-400 font-bold shadow-xs' : 'text-gray-600 dark:text-gray-300'}`}
-                  >
-                    Osztály szerint
-                  </button>
-                </div>
+                    <select
+                      value={newClassId}
+                      onChange={e => setNewClassId(e.target.value)}
+                      className="px-3 py-1.5 text-xs bg-white dark:bg-gray-800 border rounded-lg font-medium"
+                      required
+                    >
+                      <option value="">Válassz osztályt...</option>
+                      {sortedClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
 
-                {filterMode === 'teacher' && (
-                  <select
-                    value={selectedTeacherFilter}
-                    onChange={e => setSelectedTeacherFilter(e.target.value)}
-                    className="px-3 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white font-medium"
-                  >
-                    {sortedTeachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                  </select>
+                    <input
+                      type="text"
+                      value={newSubjectInput}
+                      onChange={e => setNewSubjectInput(e.target.value)}
+                      placeholder="Tantárgy neve..."
+                      className="px-3 py-1.5 text-xs bg-white dark:bg-gray-800 border rounded-lg flex-1 min-w-[150px]"
+                      required
+                    />
+
+                    <div className="flex items-center gap-1 text-xs font-semibold">
+                      <span>Óraszám:</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={30}
+                        value={newWeeklyHours}
+                        onChange={e => setNewWeeklyHours(parseInt(e.target.value, 10) || 1)}
+                        className="w-14 px-2 py-1.5 text-xs border rounded-lg text-center font-bold"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-colors"
+                    >
+                      Hozzáadás
+                    </button>
+                  </form>
                 )}
 
-                {filterMode === 'class' && (
-                  <select
-                    value={selectedClassFilter}
-                    onChange={e => setSelectedClassFilter(e.target.value)}
-                    className="px-3 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white font-medium"
-                  >
-                    {sortedClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                )}
-              </div>
-            </div>
-
-            {/* Table Container */}
-            <div className="flex-1 overflow-auto p-4">
-              {filteredAllocations.length === 0 ? (
-                <div className="text-center py-16 text-gray-400">
-                  <span className="text-4xl block mb-2">🔍</span>
-                  <p className="text-sm font-semibold">Nem található a keresésnek megfelelő tantárgyfelosztás.</p>
-                </div>
-              ) : (
-                <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden shadow-xs">
-                  <table className="border-separate border-spacing-0 w-full text-xs">
-                    <thead>
-                      <tr className="bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
-                        <th className="sticky top-0 z-20 border-b border-gray-300 dark:border-gray-600 p-2.5 font-bold text-left bg-gray-100 dark:bg-gray-800">Pedagógus</th>
-                        <th className="sticky top-0 z-20 border-b border-gray-300 dark:border-gray-600 p-2.5 font-bold text-left bg-gray-100 dark:bg-gray-800">Osztály</th>
-                        <th className="sticky top-0 z-20 border-b border-gray-300 dark:border-gray-600 p-2.5 font-bold text-left bg-gray-100 dark:bg-gray-800">Tantárgy</th>
-                        <th className="sticky top-0 z-20 border-b border-gray-300 dark:border-gray-600 p-2.5 font-bold text-center bg-gray-100 dark:bg-gray-800">Heti óraszám</th>
-                        <th className="sticky top-0 z-20 border-b border-gray-300 dark:border-gray-600 p-2.5 font-bold text-center bg-gray-100 dark:bg-gray-800">Órarendi állapot</th>
-                        <th className="sticky top-0 z-20 border-b border-gray-300 dark:border-gray-600 p-2.5 font-bold text-right bg-gray-100 dark:bg-gray-800">Műveletek</th>
+                {/* Main Allocations Table */}
+                <div className="flex-1 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-xl">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-gray-100 dark:bg-gray-700/80 sticky top-0 z-10 text-gray-700 dark:text-gray-200 font-bold">
+                      <tr>
+                        <th className="py-2.5 px-3">Pedagógus</th>
+                        <th className="py-2.5 px-3">Osztály / Csoport</th>
+                        <th className="py-2.5 px-3">Tantárgy</th>
+                        <th className="py-2.5 px-3 text-center">Heti óra</th>
+                        <th className="py-2.5 px-3 text-center">Órarendi állapot</th>
+                        <th className="py-2.5 px-3 text-right">Műveletek</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                       {filteredAllocations.map(alloc => {
                         const teacher = teacherMap.get(alloc.teacherId);
                         const tClass = classMap.get(alloc.classId);
@@ -912,59 +946,37 @@ export const CurriculumManagementModal: React.FC<CurriculumManagementModalProps>
                         const isAllPlaced = placedCount >= alloc.weeklyHours;
 
                         return (
-                          <tr key={alloc.id} className="hover:bg-blue-50/40 dark:hover:bg-blue-900/10 transition-colors">
-                            {/* Pedagógus */}
-                            <td className="p-2.5 font-semibold text-gray-900 dark:text-gray-100">
-                              <div className="flex items-center gap-2">
-                                <span className={`w-3 h-3 rounded-full ${teacher?.color || 'bg-blue-400'}`} />
-                                <span>{teacher?.name || 'Ismeretlen'}</span>
-                              </div>
+                          <tr key={alloc.id} className="hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors">
+                            <td className="py-2 px-3 font-semibold text-gray-900 dark:text-white">
+                              {teacher?.name || 'N/A'}
                             </td>
-
-                            {/* Osztály */}
-                            <td className="p-2.5 font-bold text-gray-800 dark:text-gray-200">
-                              <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded-md">
-                                {tClass?.name || 'Ismeretlen'}
-                              </span>
+                            <td className="py-2 px-3 text-gray-700 dark:text-gray-300">
+                              <div>{alloc.originalClass || tClass?.name || 'N/A'}</div>
+                              {alloc.originalGroup && <div className="text-[10px] text-gray-400">{alloc.originalGroup}</div>}
                             </td>
-
-                            {/* Tantárgy */}
-                            <td className="p-2.5 font-semibold text-gray-800 dark:text-gray-200">
-                              {subject?.name || 'Ismeretlen'}
+                            <td className="py-2 px-3 text-gray-800 dark:text-gray-200 font-medium">
+                              {subject?.name || 'N/A'}
                             </td>
-
-                            {/* Heti óraszám editor */}
-                            <td className="p-2.5 text-center">
-                              <div className="inline-flex items-center gap-1 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg p-0.5 shadow-2xs">
+                            <td className="py-2 px-3 text-center">
+                              <div className="inline-flex items-center gap-1.5 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-lg">
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    if (alloc.weeklyHours > 1) {
-                                      updateAllocationHours(alloc.id, alloc.weeklyHours - 1);
-                                    }
-                                  }}
-                                  disabled={alloc.weeklyHours <= 1}
-                                  className="w-5 h-5 flex items-center justify-center font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded disabled:opacity-30"
-                                  title="Óraszám csökkentése"
+                                  onClick={() => updateAllocationHours(alloc.id, Math.max(1, alloc.weeklyHours - 1))}
+                                  className="w-5 h-5 font-bold hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-700 dark:text-gray-200"
                                 >
                                   −
                                 </button>
-                                <span className="w-7 text-center font-mono font-bold text-sm text-gray-900 dark:text-white">
-                                  {alloc.weeklyHours}
-                                </span>
+                                <span className="font-mono font-bold">{alloc.weeklyHours}</span>
                                 <button
                                   type="button"
                                   onClick={() => updateAllocationHours(alloc.id, alloc.weeklyHours + 1)}
-                                  className="w-5 h-5 flex items-center justify-center font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
-                                  title="Óraszám növelése"
+                                  className="w-5 h-5 font-bold hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-700 dark:text-gray-200"
                                 >
                                   +
                                 </button>
                               </div>
                             </td>
-
-                            {/* Órarendi állapot */}
-                            <td className="p-2.5 text-center">
+                            <td className="py-2 px-3 text-center">
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                 isAllPlaced
                                   ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
@@ -975,24 +987,21 @@ export const CurriculumManagementModal: React.FC<CurriculumManagementModalProps>
                                 {placedCount} / {alloc.weeklyHours} beosztva {isAllPlaced && '✓'}
                               </span>
                             </td>
-
-                            {/* Műveletek */}
-                            <td className="p-2.5 text-right">
-                              <div className="flex items-center justify-end gap-1.5">
+                            <td className="py-2 px-3 text-right">
+                              <div className="flex items-center justify-end gap-1">
                                 <button
                                   type="button"
                                   onClick={() => handleStartReassign(alloc)}
-                                  className="px-3 py-1 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all shadow-xs flex items-center gap-1.5"
-                                  title="Intelligens pedagóguscsere és órarendi illeszkedés vizsgálata"
+                                  className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center gap-1"
+                                  title="Átadás más pedagógusnak"
                                 >
-                                  <span>🔄</span>
-                                  <span>Átadás másnak</span>
+                                  <span>🔄 Átadás</span>
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteAllocation(alloc)}
-                                  className="px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                                  title="Tantárgyfelosztási sor törlése"
+                                  className="p-1 text-gray-400 hover:text-red-600 rounded"
+                                  title="Törlés"
                                 >
                                   🗑️
                                 </button>
@@ -1004,29 +1013,362 @@ export const CurriculumManagementModal: React.FC<CurriculumManagementModalProps>
                     </tbody>
                   </table>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </>
         )}
 
-        {/* ── Footer Summary ── */}
+        {/* ── TAB 2: Összehasonlítás & Változások (Diff View) ── */}
+        {activeTab === 'diff' && (
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden p-6 space-y-4">
+            {/* Top Source Switcher & Upload */}
+            <div className="p-4 bg-gray-50 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 rounded-2xl flex flex-wrap items-center justify-between gap-4 shrink-0">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Összehasonlítási Bázis:</span>
+                <div className="inline-flex bg-gray-200 dark:bg-gray-700 p-1 rounded-xl gap-1 text-xs font-bold">
+                  <button
+                    onClick={() => setDiffSource('initial')}
+                    className={`px-3 py-1.5 rounded-lg transition-colors ${
+                      diffSource === 'initial'
+                        ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-xs'
+                        : 'text-gray-600 dark:text-gray-300'
+                    }`}
+                  >
+                    🕒 Kezdeti állapot ({initialAllocations?.length || allocations.length} sor)
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!uploadedKretaData) {
+                        fileInputRef.current?.click();
+                      } else {
+                        setDiffSource('uploaded');
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
+                      diffSource === 'uploaded'
+                        ? 'bg-white dark:bg-gray-800 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                        : 'text-gray-600 dark:text-gray-300'
+                    }`}
+                  >
+                    <span>📁 Feltöltött Kréta Export</span>
+                    {uploadedFileName && <span className="text-[10px] opacity-75">({uploadedFileName})</span>}
+                  </button>
+                </div>
+              </div>
+
+              {/* Hidden file input & upload button */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  className="sr-only"
+                  accept=".xlsx, .xls"
+                  onChange={handleFileUpload}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3.5 py-1.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 text-xs font-bold rounded-xl hover:bg-emerald-100 flex items-center gap-1.5 transition-colors"
+                >
+                  <DocumentArrowUpIcon className="w-4 h-4" />
+                  <span>Kréta TTF Fájl Feltöltése (.xlsx)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* KPI Summary Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
+              <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl">
+                <div className="text-[11px] font-bold text-blue-800 dark:text-blue-300 uppercase">Összes Eltérés</div>
+                <div className="text-xl font-extrabold text-blue-900 dark:text-blue-100 mt-0.5">{diffStats.totalChanges} db</div>
+              </div>
+              <div className="p-3 bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 rounded-xl">
+                <div className="text-[11px] font-bold text-purple-800 dark:text-purple-300 uppercase">Tanárcsere</div>
+                <div className="text-xl font-extrabold text-purple-900 dark:text-purple-100 mt-0.5">{diffStats.teacherChangesCount} db</div>
+              </div>
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl">
+                <div className="text-[11px] font-bold text-amber-800 dark:text-amber-300 uppercase">Óraszám változás</div>
+                <div className="text-xl font-extrabold text-amber-900 dark:text-amber-100 mt-0.5">{diffStats.hoursChangesCount} db</div>
+              </div>
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-xl">
+                <div className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 uppercase">Új felosztás</div>
+                <div className="text-xl font-extrabold text-emerald-900 dark:text-emerald-100 mt-0.5">+{diffStats.addedCount} db</div>
+              </div>
+            </div>
+
+            {/* Filter & Subtab Controls */}
+            <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl text-xs font-semibold">
+                <button
+                  onClick={() => setDiffFilter('changes_only')}
+                  className={`px-3 py-1 rounded-lg ${diffFilter === 'changes_only' ? 'bg-white dark:bg-gray-700 font-bold shadow-xs' : 'text-gray-500'}`}
+                >
+                  Összes változás ({diffStats.totalChanges})
+                </button>
+                <button
+                  onClick={() => setDiffFilter('teacher_only')}
+                  className={`px-3 py-1 rounded-lg ${diffFilter === 'teacher_only' ? 'bg-white dark:bg-gray-700 font-bold shadow-xs text-purple-600' : 'text-gray-500'}`}
+                >
+                  Tanárcserék ({diffStats.teacherChangesCount})
+                </button>
+                <button
+                  onClick={() => setDiffFilter('hours_only')}
+                  className={`px-3 py-1 rounded-lg ${diffFilter === 'hours_only' ? 'bg-white dark:bg-gray-700 font-bold shadow-xs text-amber-600' : 'text-gray-500'}`}
+                >
+                  Óraszám eltérések ({diffStats.hoursChangesCount})
+                </button>
+                <button
+                  onClick={() => setDiffFilter('added_only')}
+                  className={`px-3 py-1 rounded-lg ${diffFilter === 'added_only' ? 'bg-white dark:bg-gray-700 font-bold shadow-xs text-emerald-600' : 'text-gray-500'}`}
+                >
+                  Csak új felosztások ({diffStats.addedCount})
+                </button>
+                <button
+                  onClick={() => setDiffFilter('all')}
+                  className={`px-3 py-1 rounded-lg ${diffFilter === 'all' ? 'bg-white dark:bg-gray-700 font-bold shadow-xs' : 'text-gray-500'}`}
+                >
+                  Minden sor ({diffRows.length})
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowTeacherHourSummary(prev => !prev)}
+                  className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 text-xs font-bold rounded-xl transition-colors"
+                >
+                  {showTeacherHourSummary ? '📋 Részletes táblázat' : '👥 Pedagógus összóra eltérések'}
+                </button>
+                <input
+                  type="text"
+                  placeholder="Keresés eltérésekben..."
+                  value={diffSearch}
+                  onChange={e => setDiffSearch(e.target.value)}
+                  className="px-3 py-1.5 text-xs border rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                />
+              </div>
+            </div>
+
+            {/* Table Area */}
+            <div className="flex-1 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-xl">
+              {showTeacherHourSummary ? (
+                /* Teacher Total Hours Delta Table */
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-gray-100 dark:bg-gray-700/80 sticky top-0 z-10 text-gray-700 dark:text-gray-200 font-bold">
+                    <tr>
+                      <th className="py-2.5 px-3">Pedagógus</th>
+                      <th className="py-2.5 px-3 text-center">Bázis / Kréta összóra</th>
+                      <th className="py-2.5 px-3 text-center">Jelenlegi órarend összóra</th>
+                      <th className="py-2.5 px-3 text-center">Különbség (Δ)</th>
+                      <th className="py-2.5 px-3 text-right">Művelet</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                    {teacherHourComparison.map(item => {
+                      const hasDelta = item.delta !== 0;
+                      return (
+                        <tr key={item.teacherName} className={`hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors ${hasDelta ? 'bg-amber-50/40 dark:bg-amber-950/20' : ''}`}>
+                          <td className="py-2 px-3 font-semibold text-gray-900 dark:text-white">{item.teacherName}</td>
+                          <td className="py-2 px-3 text-center font-mono font-bold text-gray-600 dark:text-gray-400">{item.baseHours} óra</td>
+                          <td className="py-2 px-3 text-center font-mono font-bold text-gray-900 dark:text-white">{item.currentHours} óra</td>
+                          <td className="py-2 px-3 text-center">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-extrabold font-mono ${
+                              item.delta > 0
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
+                                : item.delta < 0
+                                ? 'bg-red-100 text-red-800 dark:bg-red-900/60 dark:text-red-300'
+                                : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              {item.delta > 0 ? `+${item.delta}` : item.delta} óra
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 text-right">
+                            {onExportCurriculum && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const tObj = teachers.find(t => t.name === item.teacherName);
+                                  if (tObj) onExportCurriculum(tObj.id);
+                                }}
+                                className="px-2.5 py-1 text-xs bg-cyan-600 hover:bg-cyan-700 text-white font-bold rounded-lg transition-colors"
+                              >
+                                Export (.xlsx)
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                /* Detailed Row by Row Diff Table */
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-gray-100 dark:bg-gray-700/80 sticky top-0 z-10 text-gray-700 dark:text-gray-200 font-bold">
+                    <tr>
+                      <th className="py-2.5 px-3">Osztály / Csoport</th>
+                      <th className="py-2.5 px-3">Tantárgy</th>
+                      <th className="py-2.5 px-3">Bázis / Kréta Állapot</th>
+                      <th className="py-2.5 px-3">Jelenlegi Órarendi Állapot</th>
+                      <th className="py-2.5 px-3 text-right">Eltérés / Megjegyzés</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                    {displayedDiffRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-gray-400">
+                          Nincs megjeleníthető eltérés a kiválasztott szűrők alapján.
+                        </td>
+                      </tr>
+                    ) : (
+                      displayedDiffRows.map((row, idx) => {
+                        const isChanged = row.changeType !== 'identical';
+                        return (
+                          <tr
+                            key={`${row.key}_${idx}`}
+                            className={`hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors ${
+                              row.changeType === 'teacher_changed'
+                                ? 'bg-purple-50/50 dark:bg-purple-950/20'
+                                : row.changeType === 'hours_changed'
+                                ? 'bg-amber-50/50 dark:bg-amber-950/20'
+                                : row.changeType === 'added_in_app'
+                                ? 'bg-emerald-50/50 dark:bg-emerald-950/20'
+                                : row.changeType === 'removed_in_app'
+                                ? 'bg-red-50/50 dark:bg-red-950/20'
+                                : ''
+                            }`}
+                          >
+                            <td className="py-2 px-3 text-gray-900 dark:text-white font-semibold">
+                              <div>{row.className || '—'}</div>
+                              {row.groupName && <div className="text-[10px] text-gray-400">{row.groupName}</div>}
+                            </td>
+                            <td className="py-2 px-3 text-gray-800 dark:text-gray-200 font-medium">
+                              {row.subjectName}
+                            </td>
+                            <td className="py-2 px-3 text-gray-600 dark:text-gray-400">
+                              <span className="font-semibold">{row.baseTeacherName}</span>
+                              {row.baseWeeklyHours > 0 && <span className="ml-1 text-[11px]">({row.baseWeeklyHours} óra)</span>}
+                            </td>
+                            <td className="py-2 px-3 font-semibold text-gray-900 dark:text-white">
+                              <span>{row.currentTeacherName}</span>
+                              {row.currentWeeklyHours > 0 && <span className="ml-1 text-[11px] text-blue-600 dark:text-blue-400">({row.currentWeeklyHours} óra)</span>}
+                            </td>
+                            <td className="py-2 px-3 text-right">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                row.changeType === 'teacher_changed'
+                                  ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-300'
+                                  : row.changeType === 'hours_changed'
+                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'
+                                  : row.changeType === 'added_in_app'
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
+                                  : row.changeType === 'removed_in_app'
+                                  ? 'bg-red-100 text-red-800 dark:bg-red-900/60 dark:text-red-300'
+                                  : 'bg-gray-100 text-gray-500'
+                              }`}>
+                                {row.details}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── TAB 3: Kréta Export ── */}
+        {activeTab === 'export' && (
+          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-6 space-y-6">
+            <div className="p-6 bg-gradient-to-r from-cyan-50 to-blue-50 dark:from-cyan-950/40 dark:to-blue-950/40 border border-cyan-200 dark:border-cyan-800 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-6">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl">🏫</span>
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">Teljes Intézményi Kréta Tantárgyfelosztás</h3>
+                </div>
+                <p className="text-xs text-gray-600 dark:text-gray-300 max-w-xl">
+                  A Kréta kereszttáblás import sablonja (<code className="font-mono text-cyan-700 dark:text-cyan-300">TantargyfelosztasImport_Sablon_Kereszttablas.xlsx</code>) alapján elkészíti az intézmény összes osztályának és tanárának egybefüggő TTF import fájlját.
+                </p>
+              </div>
+
+              {onExportCurriculum && (
+                <button
+                  type="button"
+                  onClick={() => onExportCurriculum()}
+                  className="px-6 py-3 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-sm rounded-xl transition-all shadow-md flex items-center gap-2 shrink-0 hover:scale-105 active:scale-95"
+                >
+                  <Squares2X2Icon className="w-5 h-5" />
+                  <span>Teljes Intézmény TTF Export (.xlsx)</span>
+                </button>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Tanáronkénti Különálló TTF Export:</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {sortedTeachers.map(teacher => {
+                  const teacherAllocs = allocations.filter(a => a.teacherId === teacher.id);
+                  const totalH = teacherAllocs.reduce((s, a) => s + a.weeklyHours, 0);
+                  if (totalH === 0) return null;
+
+                  return (
+                    <div
+                      key={teacher.id}
+                      className="p-3.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl flex items-center justify-between gap-3 shadow-xs"
+                    >
+                      <div>
+                        <div className="font-bold text-xs text-gray-900 dark:text-white truncate">{teacher.name}</div>
+                        <div className="text-[11px] text-gray-500">{totalH} heti óra ({teacherAllocs.length} tantárgy)</div>
+                      </div>
+                      {onExportCurriculum && (
+                        <button
+                          type="button"
+                          onClick={() => onExportCurriculum(teacher.id)}
+                          className="px-2.5 py-1.5 bg-cyan-50 hover:bg-cyan-100 dark:bg-cyan-950/60 dark:hover:bg-cyan-900/60 text-cyan-700 dark:text-cyan-300 border border-cyan-300 dark:border-cyan-700 rounded-lg text-xs font-bold transition-colors"
+                          title={`${teacher.name} Kréta TTF import fájl letöltése`}
+                        >
+                          Export
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Footer Summary & Quick Export ── */}
         <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 shrink-0 text-xs text-gray-600 dark:text-gray-400">
           <div className="flex items-center gap-4 font-semibold">
             <span>👥 {teachers.length} pedagógus</span>
             <span>•</span>
             <span>🏫 {classes.length} osztály</span>
             <span>•</span>
-            <span>📖 {allocations.length} tantárgyfelosztás</span>
+            <span>📖 {allocations.length} tantárgyfelosztási sor</span>
             <span>•</span>
             <span className="text-gray-900 dark:text-white font-bold">⏱️ Összesen: {totalWeeklyHours} heti óra ({totalPlacedHours} beosztva)</span>
           </div>
 
-          <button
-            onClick={onClose}
-            className="px-5 py-1.5 bg-gray-800 hover:bg-gray-900 dark:bg-gray-200 dark:hover:bg-white text-white dark:text-gray-900 font-bold rounded-xl shadow-xs transition-colors"
-          >
-            Kész / Bezárás
-          </button>
+          <div className="flex items-center gap-3">
+            {onExportCurriculum && (
+              <button
+                onClick={() => onExportCurriculum()}
+                className="px-4 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
+              >
+                <Squares2X2Icon className="w-4 h-4" />
+                <span>Teljes TTF Export (.xlsx)</span>
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="px-5 py-1.5 bg-gray-800 hover:bg-gray-900 dark:bg-gray-200 dark:hover:bg-white text-white dark:text-gray-900 font-bold rounded-xl shadow-xs transition-colors"
+            >
+              Bezárás
+            </button>
+          </div>
         </div>
 
       </div>

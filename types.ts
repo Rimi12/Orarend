@@ -64,6 +64,7 @@ export interface AppHistoryState {
   subjects: Subject[];
   allocations: Allocation[];
   placedLessons: PlacedLesson[];
+  initialAllocations?: Allocation[];
 }
 
 // Represents the structure of the saved state in localStorage
@@ -73,6 +74,7 @@ export interface SavedState extends AppHistoryState {
   selectedClassId: string | null;
   driveFileId: string | null;
   assistantSchedule?: AssistantSchedule;
+  initialAllocations?: Allocation[];
 }
 
 export interface ParsedData {

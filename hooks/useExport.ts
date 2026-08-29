@@ -411,12 +411,237 @@ export const useExport = () => {
     }
   }, [currentState, buildKretaWorkbook]);
 
+  // ── Kréta Cross-Table Curriculum (Tantárgyfelosztás) Export ───────────────────
+  const buildKretaCrossTableCurriculumWorkbook = useCallback((
+    targetAllocations: Allocation[],
+    teacherIdFilter?: string
+  ) => {
+    if (!currentState) return null;
+
+    const { teachers, classes, subjects } = currentState;
+    const classMap = new Map(classes.map(c => [c.id, c.name]));
+    const subjectMap = new Map(subjects.map(s => [s.id, s.name]));
+
+    // Filter teachers if single teacher export
+    let exportTeachers = teachers;
+    let exportAllocations = targetAllocations;
+
+    if (teacherIdFilter) {
+      exportTeachers = teachers.filter(t => t.id === teacherIdFilter);
+      exportAllocations = targetAllocations.filter(a => a.teacherId === teacherIdFilter);
+    } else {
+      const activeTeacherIds = new Set(targetAllocations.map(a => a.teacherId));
+      exportTeachers = teachers.filter(t => activeTeacherIds.has(t.id));
+    }
+
+    // Sort teachers alphabetically
+    exportTeachers = [...exportTeachers].sort((a, b) => a.name.localeCompare(b, 'hu-HU'));
+
+    // Group rows by (Class, Group, Subject)
+    interface RowData {
+      className: string;
+      groupName: string;
+      subjectName: string;
+      teacherHours: Record<string, number>;
+    }
+
+    const rowMap = new Map<string, RowData>();
+
+    exportAllocations.forEach(alloc => {
+      const origClass = alloc.originalClass || '';
+      const origGroup = alloc.originalGroup || '';
+      const cName = classMap.get(alloc.classId) || '';
+      
+      let finalClass = origClass;
+      let finalGroup = origGroup;
+
+      if (!origClass && !origGroup) {
+        if (
+          cName.includes('csoport') ||
+          cName.includes('Kollégium') ||
+          cName.includes('Utazó') ||
+          cName.includes('Autista') ||
+          cName.includes('Beszédfejlesztés')
+        ) {
+          finalGroup = cName;
+          finalClass = '';
+        } else {
+          finalClass = cName;
+          finalGroup = '';
+        }
+      }
+
+      let sName = subjectMap.get(alloc.subjectId) || '';
+      if (sName === 'Napközis tevékenység') sName = 'Napközi';
+      if (sName === 'Mozgásnevelés') sName = 'Mozgás nevelés';
+
+      const rowKey = `${finalClass}###${finalGroup}###${sName}`;
+      if (!rowMap.has(rowKey)) {
+        rowMap.set(rowKey, {
+          className: finalClass,
+          groupName: finalGroup,
+          subjectName: sName,
+          teacherHours: {}
+        });
+      }
+
+      const rowObj = rowMap.get(rowKey)!;
+      rowObj.teacherHours[alloc.teacherId] = (rowObj.teacherHours[alloc.teacherId] || 0) + alloc.weeklyHours;
+    });
+
+    const sortedRows = Array.from(rowMap.values()).sort((a, b) => {
+      const cComp = a.className.localeCompare(b.className, 'hu-HU');
+      if (cComp !== 0) return cComp;
+      const gComp = a.groupName.localeCompare(b.groupName, 'hu-HU');
+      if (gComp !== 0) return gComp;
+      return a.subjectName.localeCompare(b.subjectName, 'hu-HU');
+    });
+
+    // Build main sheet: TTF_Kereszttablas_Import_Minta
+    // Row 1: 4 empty cols + teacher names
+    const row1: (string | null)[] = ['', '', '', '', ...exportTeachers.map(t => t.name)];
+
+    // Row 2: ['Osztály', 'Csoport', 'Tantárgy', 'Összesen', formulas for column totals]
+    const maxDataRow = sortedRows.length + 2; // 1-indexed (rows 3 to maxDataRow)
+    const row2: any[] = [
+      'Osztály',
+      'Csoport',
+      'Tantárgy',
+      'Összesen',
+      ...exportTeachers.map((_, idx) => {
+        const colLetter = XLSX.utils.encode_col(4 + idx);
+        return { f: `SUM(${colLetter}3:${colLetter}${maxDataRow})` };
+      })
+    ];
+
+    const sheetData: any[][] = [row1, row2];
+
+    sortedRows.forEach((row, rowIdx) => {
+      const excelRowIndex = rowIdx + 3; // 1-indexed Excel row
+      const endColLetter = XLSX.utils.encode_col(3 + exportTeachers.length);
+      const rowArr: any[] = [
+        row.className,
+        row.groupName,
+        row.subjectName,
+        { f: `SUM(E${excelRowIndex}:${endColLetter}${excelRowIndex})` }
+      ];
+
+      exportTeachers.forEach(t => {
+        const hours = row.teacherHours[t.id];
+        rowArr.push(hours && hours > 0 ? hours : null);
+      });
+
+      sheetData.push(rowArr);
+    });
+
+    const workbook = XLSX.utils.book_new();
+
+    // 1. Main cross-table sheet
+    const mainWorksheet = XLSX.utils.aoa_to_sheet(sheetData);
+    mainWorksheet['!cols'] = [
+      { wch: 18 }, // Osztály
+      { wch: 26 }, // Csoport
+      { wch: 30 }, // Tantárgy
+      { wch: 12 }, // Összesen
+      ...exportTeachers.map(() => ({ wch: 22 }))
+    ];
+    XLSX.utils.book_append_sheet(workbook, mainWorksheet, 'TTF_Kereszttablas_Import_Minta');
+
+    // 2. Reference sheets: Osztály, Csoport, Tantárgy, Tanár
+    const classSet = new Set<string>([
+      ...KRETA_OSZTALY_DEFAULT,
+      ...classes.map(c => c.name),
+      ...sortedRows.map(r => r.className).filter(Boolean)
+    ]);
+    const classData = Array.from(classSet).sort((a, b) => a.localeCompare(b, 'hu-HU')).map(c => [c]);
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(classData), 'Osztály');
+
+    const groupSet = new Set<string>([
+      ...KRETA_CSOPORT_DEFAULT,
+      ...sortedRows.map(r => r.groupName).filter(Boolean)
+    ]);
+    const groupData = Array.from(groupSet).sort((a, b) => a.localeCompare(b, 'hu-HU')).map(g => [g]);
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(groupData), 'Csoport');
+
+    const subjectSet = new Set<string>([
+      ...KRETA_TANTARGY_DEFAULT,
+      ...subjects.map(s => {
+        let name = s.name;
+        if (name === 'Napközis tevékenység') name = 'Napközi';
+        if (name === 'Mozgásnevelés') name = 'Mozgás nevelés';
+        return name;
+      }),
+      ...sortedRows.map(r => r.subjectName).filter(Boolean)
+    ]);
+    const subjectData = Array.from(subjectSet).sort((a, b) => a.localeCompare(b, 'hu-HU')).map(s => [s]);
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(subjectData), 'Tantárgy');
+
+    const teacherSet = new Set<string>([
+      ...KRETA_TANAR_DEFAULT,
+      ...teachers.map(t => t.name)
+    ]);
+    const teacherData = Array.from(teacherSet).sort((a, b) => a.localeCompare(b, 'hu-HU')).map(t => [t]);
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(teacherData), 'Tanár');
+
+    return workbook;
+  }, [currentState]);
+
+  // ── Handle Full Curriculum Export (Whole School Kréta TTF) ───────────────────
+  const handleExportCurriculumForKreta = useCallback((targetAllocations?: Allocation[], teacherIdFilter?: string) => {
+    if (!currentState) {
+      alert("Nincs adat az exportáláshoz.");
+      return;
+    }
+
+    const allocs = targetAllocations || currentState.allocations;
+    if (allocs.length === 0) {
+      alert("Nincsenek tantárgyfelosztási adatok.");
+      return;
+    }
+
+    try {
+      const workbook = buildKretaCrossTableCurriculumWorkbook(allocs, teacherIdFilter);
+      if (!workbook) return;
+
+      let fileName = 'tantargyfelosztas_kreta_kereszttablas_import.xlsx';
+      if (teacherIdFilter) {
+        const teacher = findTeacher(teacherIdFilter);
+        const safeTeacherName = teacher ? teacher.name.replace(/[\\/:*?"<>| ]/g, '_') : 'tanar';
+        fileName = `${safeTeacherName}_tantargyfelosztas_kreta_import.xlsx`;
+      }
+
+      XLSX.writeFile(workbook, fileName);
+
+      // Save locally
+      const base64Data = XLSX.write(workbook, { type: 'base64', bookType: 'xlsx' });
+      fetch('/api/save-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName, base64Data })
+      })
+      .then(r => r.json())
+      .then(res => {
+        if (res.success) {
+          console.log(`[TTF Export] Mentve a 2026 könyvtárba: ${fileName}`);
+        }
+      })
+      .catch(err => console.error("Helyi mentési hiba:", err));
+
+      alert(`Sikeres Kréta tantárgyfelosztás export!\nFájlnév: ${fileName}`);
+    } catch (e) {
+      console.error("Hiba a TTF exportálás során:", e);
+      alert("Hiba történt a kereszttáblás tantárgyfelosztás Excel generálása közben.");
+    }
+  }, [currentState, buildKretaCrossTableCurriculumWorkbook, findTeacher]);
+
   return {
     handleExport,
     handleExportForKreta,
     handleExportTeacherForKreta,
     handleExportAllTeachersForKreta,
-    buildKretaWorkbook
+    buildKretaWorkbook,
+    buildKretaCrossTableCurriculumWorkbook,
+    handleExportCurriculumForKreta
   };
 };
 

@@ -198,6 +198,9 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     [currentState?.classes]);
 
     const pushNewState = useCallback((newState: AppHistoryState) => {
+        if (!newState.initialAllocations) {
+            newState.initialAllocations = currentState?.initialAllocations || currentState?.allocations || newState.allocations;
+        }
         const migratedState = migrateHittanState(newState);
         let newHistory = history.slice(0, historyIndex + 1);
         newHistory.push(migratedState);
@@ -215,7 +218,7 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 }
             });
         }
-    }, [history, historyIndex, roomCode]);
+    }, [history, historyIndex, roomCode, currentState]);
 
     const undo = useCallback(() => {
         if (historyIndex > 0) {
@@ -239,6 +242,7 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             subjects: data.subjects,
             allocations: data.allocations,
             placedLessons: [],
+            initialAllocations: data.allocations
         });
         setSelectedTeacherId(initialState.teachers[0]?.id || null);
         setSelectedClassId(initialState.classes[0]?.id || null);
@@ -418,6 +422,7 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 subjects: savedState.subjects || [],
                 allocations: savedState.allocations || [],
                 placedLessons: savedState.placedLessons || [],
+                initialAllocations: savedState.initialAllocations || savedState.allocations || [],
             };
 
             const migratedState = migrateHittanState(completeState);

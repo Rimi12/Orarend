@@ -525,10 +525,12 @@ const Main: React.FC = () => {
         subjects={currentState.subjects}
         allocations={currentState.allocations}
         placedLessons={currentState.placedLessons}
+        initialAllocations={currentState.initialAllocations || currentState.allocations}
         reassignAllocationTeacher={reassignAllocationTeacher}
         updateAllocationHours={updateAllocationHours}
         addCustomAllocation={addCustomAllocation}
         removeCustomAllocation={removeCustomAllocation}
+        onExportCurriculum={handleExportCurriculumForKreta}
       />
 
       <CloudSyncModal
