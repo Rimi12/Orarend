@@ -14,7 +14,7 @@ import {
 } from '../kretaTemplateData.ts';
 
 export const useExport = () => {
-  const { currentState, selectedTeacherId, selectedClassId, findTeacher, findClass, findSubject } = useTimetable();
+  const { currentState, selectedTeacherId, selectedClassId, findTeacher, findClass, findSubject, rooms } = useTimetable();
 
   // ── Grid Layout Export (Visual timetable view) ──────────────────────────────
   const handleExport = useCallback((type: 'teacher' | 'class') => {
@@ -116,8 +116,12 @@ export const useExport = () => {
     }
   }, [currentState, selectedTeacherId, selectedClassId, findTeacher, findClass, findSubject]);
 
-  // ── Helper to build standard Kréta import workbook ──────────────────────────
-  const buildKretaWorkbook = useCallback((lessonsToExport: PlacedLesson[]) => {
+  // ── Helper to build standard Kréta import workbook with Helyiség ────────────
+  const buildKretaWorkbook = useCallback((
+    lessonsToExport: PlacedLesson[],
+    roomMap?: Record<string, string>,
+    teacherIdForPrimary?: string
+  ) => {
     const sortedLessons = [...lessonsToExport].sort((a, b) => {
       if (a.day !== b.day) return a.day - b.day;
       if (a.period !== b.period) return a.period - b.period;
@@ -125,6 +129,8 @@ export const useExport = () => {
       const classB = findClass(b.allocation.classId)?.name || '';
       return classA.localeCompare(classB, 'hu-HU');
     });
+
+    const activeRooms = rooms && rooms.length > 0 ? rooms : KRETA_HELYISEG_DEFAULT;
 
     const header = ["Hetirend", "Nap", "Óra (adott napon belül)", "Osztály", "Csoport", "Tantárgy", "Tanár", "Helyiség"];
     const sheetData: (string | number)[][] = [header];
@@ -161,6 +167,26 @@ export const useExport = () => {
 
       const teacherName = findTeacher(lesson.allocation.teacherId)?.name || 'N/A';
 
+      // Determine Room (Helyiség)
+      let finalRoom = roomMap?.[lesson.id] || '';
+      if (!finalRoom) {
+        const targetTeacherId = teacherIdForPrimary || lesson.allocation.teacherId;
+        const teacherPrimInfo = getTeacherPrimaryRoom(
+          targetTeacherId,
+          currentState?.placedLessons || [],
+          currentState?.classes || [],
+          activeRooms
+        );
+        const resolved = resolveLessonRoom(
+          lesson,
+          teacherPrimInfo.primaryRoom,
+          currentState?.classes || [],
+          currentState?.subjects || [],
+          activeRooms
+        );
+        finalRoom = resolved.room;
+      }
+
       const rowData = [
         "Minden héten",
         DAYS_OF_WEEK[lesson.day] || "",
@@ -169,7 +195,7 @@ export const useExport = () => {
         finalGroup,
         subjectName,
         teacherName,
-        "" // Helyiség - default empty or handled by room assignment
+        finalRoom
       ];
       sheetData.push(rowData);
     });
@@ -186,7 +212,7 @@ export const useExport = () => {
       { wch: 25 }, // Csoport
       { wch: 28 }, // Tantárgy
       { wch: 25 }, // Tanár
-      { wch: 18 }, // Helyiség
+      { wch: 25 }, // Helyiség
     ];
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Órarend');
 
@@ -238,14 +264,18 @@ export const useExport = () => {
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(teacherData), 'Tanár');
 
     // Helyiség
-    const helyisegList = KRETA_HELYISEG_DEFAULT.map(v => [v]);
+    const roomSet = new Set<string>([
+      ...activeRooms,
+      ...KRETA_HELYISEG_DEFAULT
+    ]);
+    const helyisegList = Array.from(roomSet).sort((a, b) => a.localeCompare(b, 'hu-HU')).map(v => [v]);
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(helyisegList), 'Helyiség');
 
     return workbook;
-  }, [currentState, findClass, findSubject, findTeacher]);
+  }, [currentState, findClass, findSubject, findTeacher, rooms]);
 
   // ── Single Teacher Kréta Import Excel Export ────────────────────────────────
-  const handleExportTeacherForKreta = useCallback((teacherId?: string) => {
+  const handleExportTeacherForKreta = useCallback((teacherId?: string, roomMap?: Record<string, string>) => {
     if (!currentState) {
       alert("Nincs adat az exportáláshoz.");
       return;
@@ -270,7 +300,7 @@ export const useExport = () => {
     }
 
     try {
-      const workbook = buildKretaWorkbook(teacherLessons);
+      const workbook = buildKretaWorkbook(teacherLessons, roomMap, teacher.id);
       const safeTeacherName = teacher.name.replace(/[\\/:*?"<>| ]/g, '_');
       const fileName = `${safeTeacherName}_kreta_import.xlsx`;
 
@@ -291,7 +321,7 @@ export const useExport = () => {
       })
       .catch(err => console.error("Helyi mentési hiba:", err));
 
-      alert(`Sikeres Kréta import export!\nPedagógus: ${teacher.name} (${teacherLessons.length} óra)\nFájlnév: ${fileName}`);
+      alert(`Sikeres Kréta import export!\nPedagógus: ${teacher.name} (${teacherLessons.length} óra)\nHelyiségek kitöltve a 2026_08_29 termek lista szerint.\nFájlnév: ${fileName}`);
     } catch (e) {
       console.error("Hiba a tanári Kréta exportálás során:", e);
       alert("Hiba történt az Excel fájl generálása közben.");
@@ -319,7 +349,7 @@ export const useExport = () => {
       const teacherLessons = currentState.placedLessons.filter(l => l.allocation.teacherId === teacher.id);
       if (teacherLessons.length === 0) return;
 
-      const workbook = buildKretaWorkbook(teacherLessons);
+      const workbook = buildKretaWorkbook(teacherLessons, undefined, teacher.id);
       const safeTeacherName = teacher.name.replace(/[\\/:*?"<>| ]/g, '_');
       const fileName = `${safeTeacherName}_kreta_import.xlsx`;
 
@@ -340,11 +370,11 @@ export const useExport = () => {
       savedCount++;
     });
 
-    alert(`Sikeres kötegelt exportálás!\nÖsszesen ${savedCount} pedagógus Kréta import fájlja elkészült és el lett mentve a helyi könyvtárba.`);
+    alert(`Sikeres kötegelt exportálás!\nÖsszesen ${savedCount} pedagógus Kréta import fájlja elkészült (kitöltött helyiségekkel) és el lett mentve a helyi 2026 könyvtárba.`);
   }, [currentState, buildKretaWorkbook]);
 
   // ── Full School Kréta Import Excel Export ───────────────────────────────────
-  const handleExportForKreta = useCallback(() => {
+  const handleExportForKreta = useCallback((roomMap?: Record<string, string>) => {
     if (!currentState) {
       alert("Nincs adat az exportáláshoz.");
       return;
@@ -357,7 +387,7 @@ export const useExport = () => {
     }
 
     try {
-      const workbook = buildKretaWorkbook(placedLessons);
+      const workbook = buildKretaWorkbook(placedLessons, roomMap);
       const fileName = `kréta_import_órarend.xlsx`;
       XLSX.writeFile(workbook, fileName);
 
@@ -371,7 +401,7 @@ export const useExport = () => {
       .then(r => r.json())
       .then(res => {
         if (res.success) {
-          alert(`Sikeres exportálás!\nA teljes órarend Kréta import fájlja lementve:\n${fileName}`);
+          alert(`Sikeres exportálás!\nA teljes órarend Kréta import fájlja lementve (kitöltött helyiség oszloppal):\n${fileName}`);
         }
       })
       .catch(err => console.error("Helyi mentési hiba:", err));
@@ -385,7 +415,9 @@ export const useExport = () => {
     handleExport,
     handleExportForKreta,
     handleExportTeacherForKreta,
-    handleExportAllTeachersForKreta
+    handleExportAllTeachersForKreta,
+    buildKretaWorkbook
   };
 };
+
 

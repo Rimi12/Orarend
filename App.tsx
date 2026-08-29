@@ -26,6 +26,8 @@ import { CloudSyncModal } from './components/CloudSyncModal.tsx';
 import { Header } from './components/Header.tsx';
 import { useAutoScheduler } from './hooks/useAutoScheduler.ts';
 import { AutoSchedulerModal } from './components/AutoSchedulerModal.tsx';
+import { RoomManagementModal } from './components/RoomManagementModal.tsx';
+import { KretaExportModal } from './components/KretaExportModal.tsx';
 
 const App: React.FC = () => {
   return (
@@ -47,6 +49,7 @@ const Main: React.FC = () => {
     sortedTeachers, sortedClasses,
     setTeacherTraveling, setPlacedLessons,
     reassignAllocationTeacher, updateAllocationHours, addCustomAllocation, removeCustomAllocation,
+    isRoomModalOpen, setIsRoomModalOpen,
     roomCode, syncStatus, lastSyncedAt, isSyncModalOpen, setIsSyncModalOpen, setRoomCode, pushToCloud, pullFromCloud
   } = useTimetable();
   
@@ -150,6 +153,63 @@ const Main: React.FC = () => {
     handleExportTeacherForKreta,
     handleExportAllTeachersForKreta
   } = useExport();
+
+  const [kretaModalState, setKretaModalState] = useState<{
+    isOpen: boolean;
+    teacher?: Teacher;
+    lessons: import('./types.ts').PlacedLesson[];
+    onConfirm: (roomMap: Record<string, string>) => void;
+  }>({
+    isOpen: false,
+    lessons: [],
+    onConfirm: () => {}
+  });
+
+  const handleOpenTeacherKretaExport = useCallback((teacherId?: string) => {
+    if (!currentState) {
+      alert("Nincs adat az exportáláshoz.");
+      return;
+    }
+    const targetId = teacherId || selectedTeacherId;
+    if (!targetId) {
+      alert("Kérjük, válassz ki egy pedagógust az exportáláshoz.");
+      return;
+    }
+    const teacher = findTeacher(targetId);
+    if (!teacher) {
+      alert("A megadott pedagógus nem található.");
+      return;
+    }
+    const teacherLessons = currentState.placedLessons.filter(l => l.allocation.teacherId === teacher.id);
+    if (teacherLessons.length === 0) {
+      alert(`A kiválasztott pedagógusnak (${teacher.name}) nincsenek elhelyezett órái az órarendben.`);
+      return;
+    }
+
+    setKretaModalState({
+      isOpen: true,
+      teacher,
+      lessons: teacherLessons,
+      onConfirm: (roomMap) => {
+        handleExportTeacherForKreta(teacher.id, roomMap);
+      }
+    });
+  }, [currentState, selectedTeacherId, findTeacher, handleExportTeacherForKreta]);
+
+  const handleOpenFullKretaExport = useCallback(() => {
+    if (!currentState || currentState.placedLessons.length === 0) {
+      alert("Nincsenek elhelyezett órák az exportáláshoz.");
+      return;
+    }
+    setKretaModalState({
+      isOpen: true,
+      teacher: undefined,
+      lessons: currentState.placedLessons,
+      onConfirm: (roomMap) => {
+        handleExportForKreta(roomMap);
+      }
+    });
+  }, [currentState, handleExportForKreta]);
 
   const {
     isStandbySelectionModalOpen,
@@ -271,8 +331,8 @@ const Main: React.FC = () => {
         setIsGymModalOpen={setIsGymModalOpen}
         setIsAssistantModalOpen={() => setIsAssistantSelectionOpen(true)}
         setIsCurriculumModalOpen={setIsCurriculumModalOpen}
-        handleExportForKreta={handleExportForKreta}
-        handleExportTeacherForKreta={handleExportTeacherForKreta}
+        handleExportForKreta={handleOpenFullKretaExport}
+        handleExportTeacherForKreta={handleOpenTeacherKretaExport}
         handleExportAllTeachersForKreta={handleExportAllTeachersForKreta}
         setIsSettingsModalOpen={setIsSettingsModalOpen}
         googleDrive={googleDrive}
@@ -345,7 +405,7 @@ const Main: React.FC = () => {
                 draggedAllocation={draggedAllocation}
                 checkCollision={checkCollision}
                 onExport={() => handleExport('teacher')}
-                onExportKreta={() => handleExportTeacherForKreta(selectedTeacher.id)}
+                onExportKreta={() => handleOpenTeacherKretaExport(selectedTeacher.id)}
                 onClearTimetable={handleClearTeacherTimetable}
               />
             )}
@@ -479,6 +539,19 @@ const Main: React.FC = () => {
         onRoomCodeChanged={setRoomCode}
         onPushLocalToCloud={pushToCloud}
         onPullCloudToLocal={pullFromCloud}
+      />
+
+      <KretaExportModal
+        isOpen={kretaModalState.isOpen}
+        onClose={() => setKretaModalState(prev => ({ ...prev, isOpen: false }))}
+        teacher={kretaModalState.teacher}
+        lessons={kretaModalState.lessons}
+        onConfirmExport={kretaModalState.onConfirm}
+      />
+
+      <RoomManagementModal
+        isOpen={isRoomModalOpen}
+        onClose={() => setIsRoomModalOpen(false)}
       />
 
     </div>

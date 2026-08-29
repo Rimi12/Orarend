@@ -3,8 +3,10 @@ import type { Teacher, Class, Subject, Allocation, PlacedLesson, UnplacedLesson,
 import { TEACHER_COLORS } from '../constants.ts';
 import { migrateHittanState } from '../utils.ts';
 import { getActiveRoomCode, setActiveRoomCode, subscribeToCloudDoc, saveToCloudDoc, CLIENT_ID } from '../services/firebaseSync.ts';
+import { KRETA_HELYISEG_DEFAULT } from '../kretaTemplateData.ts';
 
 const LOCAL_STORAGE_KEY = 'timetableAppStateV1';
+const ROOMS_STORAGE_KEY = 'timetable_rooms_v1';
 
 interface TimetableContextType {
   dataLoaded: boolean;
@@ -43,6 +45,17 @@ interface TimetableContextType {
   addCustomAllocation: (teacherId: string, classId: string, subjectNameOrId: string, weeklyHours: number) => void;
   removeCustomAllocation: (allocationId: string) => void;
 
+  // Room Management
+  rooms: string[];
+  setRooms: React.Dispatch<React.SetStateAction<string[]>>;
+  addRoom: (name: string) => void;
+  updateRoom: (oldName: string, newName: string) => void;
+  deleteRoom: (name: string) => void;
+  resetRoomsToDefault: () => void;
+  importRooms: (newRooms: string[]) => void;
+  isRoomModalOpen: boolean;
+  setIsRoomModalOpen: (open: boolean) => void;
+
   // Cloud Sync
   roomCode: string;
   syncStatus: 'connected' | 'syncing' | 'offline' | 'error';
@@ -72,6 +85,48 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null);
     const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
     const [driveFileId, setDriveFileId] = useState<string | null>(null);
+
+    // ── Rooms State ─────────────────────────────────────────────────────────────
+    const [rooms, setRooms] = useState<string[]>(() => {
+        try {
+            const saved = localStorage.getItem(ROOMS_STORAGE_KEY);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            }
+        } catch {}
+        return KRETA_HELYISEG_DEFAULT;
+    });
+    const [isRoomModalOpen, setIsRoomModalOpen] = useState<boolean>(false);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem(ROOMS_STORAGE_KEY, JSON.stringify(rooms));
+        } catch {}
+    }, [rooms]);
+
+    const addRoom = useCallback((name: string) => {
+        setRooms(prev => prev.includes(name) ? prev : [...prev, name].sort((a, b) => a.localeCompare(b, 'hu-HU')));
+    }, []);
+
+    const updateRoom = useCallback((oldName: string, newName: string) => {
+        setRooms(prev => prev.map(r => r === oldName ? newName : r).sort((a, b) => a.localeCompare(b, 'hu-HU')));
+    }, []);
+
+    const deleteRoom = useCallback((name: string) => {
+        setRooms(prev => prev.filter(r => r !== name));
+    }, []);
+
+    const resetRoomsToDefault = useCallback(() => {
+        setRooms(KRETA_HELYISEG_DEFAULT);
+    }, []);
+
+    const importRooms = useCallback((newRooms: string[]) => {
+        setRooms(prev => {
+            const combined = Array.from(new Set([...prev, ...newRooms])).sort((a, b) => a.localeCompare(b, 'hu-HU'));
+            return combined;
+        });
+    }, []);
 
     // ── Cloud Sync State ────────────────────────────────────────────────────────
     const [roomCode, setRoomCodeState] = useState<string>(getActiveRoomCode());
@@ -739,6 +794,17 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         addCustomAllocation,
         removeCustomAllocation,
 
+        // Room Management
+        rooms,
+        setRooms,
+        addRoom,
+        updateRoom,
+        deleteRoom,
+        resetRoomsToDefault,
+        importRooms,
+        isRoomModalOpen,
+        setIsRoomModalOpen,
+
         roomCode,
         syncStatus,
         lastSyncedAt,
@@ -757,6 +823,7 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         selectedTeacherId, selectedClassId, driveFileId,
         setSelectedTeacherId, setSelectedClassId, setDriveFileId,
         reassignAllocationTeacher, updateAllocationHours, addCustomAllocation, removeCustomAllocation,
+        rooms, addRoom, updateRoom, deleteRoom, resetRoomsToDefault, importRooms, isRoomModalOpen,
         roomCode, syncStatus, lastSyncedAt, isSyncModalOpen, setRoomCode, pushToCloud, pullFromCloud
     ]);
 

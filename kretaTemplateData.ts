@@ -519,18 +519,18 @@ export const KRETA_TANAR_DEFAULT: string[] = [
 ];
 
 export const KRETA_HELYISEG_DEFAULT: string[] = [
-  "1. b osztály",
   "1. osztály",
-  "2. osztály",
+  "2/A. osztály",
+  "2/B. osztály",
   "3. osztály",
   "4. osztály",
-  "5. a. osztály",
-  "5. b. osztály",
   "5. osztály",
-  "6. osztály",
+  "6/A. osztály",
+  "6/B. osztály",
   "7. osztály",
   "8. osztály",
-  "9/e osztály",
+  "9/E/A. osztály",
+  "9/E/B. osztály",
   "Autista csoport",
   "Beszédfejlesztés csoport",
   "Családellátó",
@@ -556,3 +556,171 @@ export const KRETA_HELYISEG_DEFAULT: string[] = [
   "Uszoda",
   "Varroda"
 ];
+
+// Helper to normalize room name against available room list
+export const matchRoomName = (name: string, availableRooms: string[] = KRETA_HELYISEG_DEFAULT): string | null => {
+  if (!name) return null;
+  const clean = name.trim().toLowerCase();
+  
+  // Exact match (case insensitive)
+  const exact = availableRooms.find(r => r.toLowerCase() === clean);
+  if (exact) return exact;
+
+  // Normalized patterns
+  if (clean.includes('óvoda') || clean.includes('ovoda')) return 'Óvodai csoportszoba';
+  if (clean.includes('autista') || clean.includes('aut.')) return 'Autista csoport';
+  if (clean.includes('parkgondozó') || clean.includes('parkgondozo')) return 'Parkgondozó osztály';
+  if (clean.includes('textil') || clean.includes('varró') || clean.includes('varro')) return 'Textiltermék összeállító osztály';
+  if (clean.includes('számítógép') || clean.includes('adatrögzítő') || clean.includes('adatrokzito')) return 'Számítógépes adatrögzítő osztály';
+  if (clean.includes('festő') || clean.includes('festo') || clean.includes('szobafestő')) return 'Szobafestő';
+  if (clean.includes('családellátó') || clean.includes('csaladellato')) return 'Családellátó';
+  if (clean.includes('készségfejlesztő 9') || clean.includes('keszsegfejleszto 9')) return 'Készségfejlesztő 9-10';
+  if (clean.includes('készségfejlesztő 11') || clean.includes('keszsegfejleszto 11')) return 'Készségfejlesztő 11-12';
+  if (clean.includes('fejlesztő iskolai') || clean.includes('fejleszto iskolai')) return 'Fejlesztő iskolai osztály';
+  if (clean.includes('fejlesztő') || clean.includes('fejleszto') || clean.includes('fejlesztő felkészítő')) return 'Fejlesztő terem';
+  if (clean.includes('kollégium') || clean.includes('kollegium')) return 'Kollégium';
+  if (clean.includes('könyvtár') || clean.includes('konyvtar')) return 'Könyvtár';
+  if (clean.includes('logopédia') || clean.includes('beszéd')) return 'Beszédfejlesztés csoport';
+  if (clean.includes('utazó') || clean.includes('utazo') || clean.includes('külső') || clean.includes('kulso')) return 'Egyéb külső helyszín';
+  if (clean.includes('tornaterem') || clean.includes('testnevelés') || clean.includes('mozgás')) return 'Tornaterem';
+  if (clean.includes('konditerem') || clean.includes('kondi')) return 'Konditerem';
+  if (clean.includes('sportpálya') || clean.includes('udvar')) return 'Udvari sportpálya';
+  if (clean.includes('uszoda') || clean.includes('úszó')) return 'Uszoda';
+  if (clean.includes('informatika') || clean.includes('számítástechnika') || clean.includes('digitális')) return 'Informatikai terem';
+  if (clean.includes('konyha') || clean.includes('főzés') || clean.includes('háztartás')) return 'Gyakorló konyha';
+  if (clean.includes('pszichológ')) return 'Iskolai pszichológiai terem';
+
+  // Standard numeric classes match (e.g. 1. osztály, 2/a, 6/b, etc.)
+  for (const r of availableRooms) {
+    if (clean === r.toLowerCase()) return r;
+    if (r.startsWith(name) || name.startsWith(r)) return r;
+  }
+
+  return null;
+};
+
+// Calculate teacher's primary room (the class where teacher has the most hours)
+export interface TeacherPrimaryRoomInfo {
+  teacherId: string;
+  primaryClassId: string;
+  primaryClassName: string;
+  primaryRoom: string;
+  hourCount: number;
+  totalHours: number;
+  isAmbiguous: boolean;
+}
+
+export const getTeacherPrimaryRoom = (
+  teacherId: string,
+  placedLessons: any[],
+  classes: { id: string; name: string }[],
+  availableRooms: string[] = KRETA_HELYISEG_DEFAULT
+): TeacherPrimaryRoomInfo => {
+  const teacherLessons = placedLessons.filter(l => l.allocation.teacherId === teacherId);
+  const classHourCounts: Record<string, number> = {};
+
+  teacherLessons.forEach(l => {
+    const classId = l.allocation.classId;
+    classHourCounts[classId] = (classHourCounts[classId] || 0) + 1;
+  });
+
+  let maxHours = 0;
+  let topClassId = '';
+  let topClassesCount = 0;
+
+  Object.entries(classHourCounts).forEach(([classId, count]) => {
+    if (count > maxHours) {
+      maxHours = count;
+      topClassId = classId;
+      topClassesCount = 1;
+    } else if (count === maxHours) {
+      topClassesCount++;
+    }
+  });
+
+  const topClass = classes.find(c => c.id === topClassId);
+  const primaryClassName = topClass?.name || '';
+  const matchedRoom = matchRoomName(primaryClassName, availableRooms) || availableRooms[0] || '1. osztály';
+  const isAmbiguous = topClassesCount > 1 || maxHours === 0;
+
+  return {
+    teacherId,
+    primaryClassId: topClassId,
+    primaryClassName,
+    primaryRoom: matchedRoom,
+    hourCount: maxHours,
+    totalHours: teacherLessons.length,
+    isAmbiguous
+  };
+};
+
+// Resolve room for a specific lesson
+export const resolveLessonRoom = (
+  lesson: any,
+  teacherPrimaryRoom: string,
+  classes: { id: string; name: string }[],
+  subjects: { id: string; name: string }[],
+  availableRooms: string[] = KRETA_HELYISEG_DEFAULT
+): { room: string; isCertain: boolean; reason: string } => {
+  const subject = subjects.find(s => s.id === lesson.allocation.subjectId);
+  const subjectName = subject?.name || '';
+  const sLower = subjectName.toLowerCase();
+
+  // 1. Subject specific rooms
+  if (sLower.includes('testnevelés') || sLower.includes('mozgásnevelés') || sLower.includes('mozgás nevelés') || sLower.includes('gyógytestnevelés') || sLower.includes('mindennapos testnevelés')) {
+    return { room: 'Tornaterem', isCertain: true, reason: 'Tantárgyi terem (Testnevelés/Mozgás)' };
+  }
+  if (sLower.includes('informatika') || sLower.includes('digitális kultúra') || sLower.includes('számítástechnika')) {
+    return { room: 'Informatikai terem', isCertain: true, reason: 'Tantárgyi terem (Informatika)' };
+  }
+  if (sLower.includes('úszás') || sLower.includes('uszoda')) {
+    return { room: 'Uszoda', isCertain: true, reason: 'Tantárgyi terem (Uszoda)' };
+  }
+  if (sLower.includes('festő') || sLower.includes('festés')) {
+    return { room: 'Festő gyakorlati hely', isCertain: true, reason: 'Szakmai gyakorlati terem' };
+  }
+  if (sLower.includes('varró') || sLower.includes('textil')) {
+    return { room: 'Varroda', isCertain: true, reason: 'Szakmai gyakorlati terem' };
+  }
+  if (sLower.includes('konyha') || sLower.includes('étel') || sLower.includes('főzés') || sLower.includes('háztartástan')) {
+    return { room: 'Gyakorló konyha', isCertain: true, reason: 'Gyakorlati terem' };
+  }
+  if (sLower.includes('logopédia') || sLower.includes('beszéd')) {
+    return { room: 'Beszédfejlesztés csoport', isCertain: true, reason: 'Fejlesztő szoba' };
+  }
+  if (sLower.includes('pszichológ')) {
+    return { room: 'Iskolai pszichológiai terem', isCertain: true, reason: 'Pszichológiai terem' };
+  }
+  if (sLower.includes('könyvtár')) {
+    return { room: 'Könyvtár', isCertain: true, reason: 'Könyvtár' };
+  }
+
+  // 2. Class / Group specific match
+  const origClass = lesson.allocation.originalClass || '';
+  const origGroup = lesson.allocation.originalGroup || '';
+  const classObj = classes.find(c => c.id === lesson.allocation.classId);
+  const className = origClass || classObj?.name || '';
+  const groupName = origGroup || '';
+
+  if (className) {
+    const matchedClassRoom = matchRoomName(className, availableRooms);
+    if (matchedClassRoom) {
+      return { room: matchedClassRoom, isCertain: true, reason: `Osztály saját terme (${className})` };
+    }
+  }
+
+  if (groupName) {
+    const matchedGroupRoom = matchRoomName(groupName, availableRooms);
+    if (matchedGroupRoom) {
+      return { room: matchedGroupRoom, isCertain: true, reason: `Csoport saját terme (${groupName})` };
+    }
+  }
+
+  // 3. Fallback to teacher's primary room
+  if (teacherPrimaryRoom) {
+    return { room: teacherPrimaryRoom, isCertain: false, reason: 'Tanár alapértelmezett terme (legtöbb óra)' };
+  }
+
+  return { room: availableRooms[0] || '1. osztály', isCertain: false, reason: 'Alapértelmezett terem' };
+};
+
