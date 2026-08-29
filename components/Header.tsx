@@ -32,6 +32,7 @@ interface HeaderProps {
   setIsGymModalOpen: (isOpen: boolean) => void;
   setIsAssistantModalOpen: (isOpen: boolean) => void;
   setIsCurriculumModalOpen: (isOpen: boolean) => void;
+  setIsKretaCurriculumModalOpen?: (isOpen: boolean) => void;
   handleExportForKreta: () => void;
   handleExportTeacherForKreta?: (teacherId?: string) => void;
   handleExportAllTeachersForKreta?: () => void;
@@ -58,7 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
   selectedClassId, setSelectedClassId, sortedClasses,
   selectedTeacherId, setSelectedTeacherId, teacherHourCounts, selectedTeacher,
   setIsAvailabilityModalOpen, setIsStandbySelectionModalOpen, setIsGymModalOpen, setIsAssistantModalOpen,
-  setIsCurriculumModalOpen,
+  setIsCurriculumModalOpen, setIsKretaCurriculumModalOpen,
   handleExportForKreta, handleExportTeacherForKreta, handleExportAllTeachersForKreta, setIsSettingsModalOpen,
   googleDrive, saveStatus, handleSaveToDrive, handleSaveToFile,
   updateFileRef, handleAllocationUpdateFileChange, handleReset,
@@ -211,12 +212,22 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={() => setIsCurriculumModalOpen(true)}
-          className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors flex items-center gap-2 shadow-sm"
+          className="px-3.5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors flex items-center gap-2 shadow-xs"
           title="Tantárgyfelosztás szerkesztése, tanárcsere és óraszámok módosítása"
         >
           <span className="text-lg">📚</span>
           <span className="hidden lg:inline">Tantárgyfelosztás</span>
         </button>
+        {setIsKretaCurriculumModalOpen && (
+          <button
+            onClick={() => setIsKretaCurriculumModalOpen(true)}
+            className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors flex items-center gap-2 shadow-xs"
+            title="Kréta tantárgyfelosztás összehasonlítása és pedagógusonkénti exportálása"
+          >
+            <span className="text-lg">📊</span>
+            <span className="hidden lg:inline">Kréta TTF Összevetés</span>
+          </button>
+        )}
         <button
           onClick={onStartAutoSchedule}
           className="px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all flex items-center gap-2"
@@ -270,7 +281,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 onClick={() => setIsKretaMenuOpen(prev => !prev)}
                 className="px-2 py-2.5 bg-cyan-700 text-white font-semibold rounded-r-lg hover:bg-cyan-800 border-l border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-colors"
-                title="Kréta export opciók (Tanáronkénti / Teljes / Kötegelt)"
+                title="Kréta export opciók (Tanáronkénti / Teljes / TTF Kereszttábla)"
               >
                 <svg className={`w-4 h-4 transition-transform ${isKretaMenuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -278,12 +289,12 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             </div>
             {isKretaMenuOpen && (
-              <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 py-2 z-50 animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 py-2 z-50 animate-in fade-in zoom-in-95 duration-100">
                 <div className="px-3 py-1.5 border-b border-gray-100 dark:border-gray-700 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-                  Kréta Import Formátum (.xlsx)
+                  Kréta Import & TTF Opciók (.xlsx)
                 </div>
                 
-                {/* 1. Selected Teacher */}
+                {/* 1. Selected Teacher Timetable */}
                 <button
                   onClick={() => {
                     setIsKretaMenuOpen(false);
@@ -303,7 +314,7 @@ export const Header: React.FC<HeaderProps> = ({
                   </div>
                 </button>
 
-                {/* 2. Full school */}
+                {/* 2. Full school Timetable */}
                 <button
                   onClick={() => {
                     setIsKretaMenuOpen(false);
@@ -318,7 +329,7 @@ export const Header: React.FC<HeaderProps> = ({
                   </div>
                 </button>
 
-                {/* 3. Batch all teachers */}
+                {/* 3. Batch all teachers Timetables */}
                 {handleExportAllTeachersForKreta && (
                   <button
                     onClick={() => {
@@ -329,8 +340,25 @@ export const Header: React.FC<HeaderProps> = ({
                   >
                     <span className="text-base mt-0.5">👥</span>
                     <div>
-                      <div className="font-semibold text-gray-900 dark:text-white">Összes pedagógus külön-külön</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">Minden tanárhoz saját fájl a 2026 mappába</div>
+                      <div className="font-semibold text-gray-900 dark:text-white">Összes pedagógus órarendje külön-külön</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Minden tanárhoz saját órarendfájl mentése</div>
+                    </div>
+                  </button>
+                )}
+
+                {/* 4. Curriculum Cross-table & Diff Tool */}
+                {setIsKretaCurriculumModalOpen && (
+                  <button
+                    onClick={() => {
+                      setIsKretaMenuOpen(false);
+                      setIsKretaCurriculumModalOpen(true);
+                    }}
+                    className="w-full text-left px-4 py-2.5 bg-indigo-50/50 hover:bg-indigo-100/70 dark:bg-indigo-950/30 dark:hover:bg-indigo-900/50 text-sm text-indigo-900 dark:text-indigo-200 flex items-start gap-2.5 transition-colors border-t border-indigo-100 dark:border-indigo-800/50"
+                  >
+                    <span className="text-base mt-0.5">📊</span>
+                    <div>
+                      <div className="font-bold text-indigo-950 dark:text-indigo-100">Kréta Tantárgyfelosztás Összevetés & Export</div>
+                      <div className="text-xs text-indigo-600 dark:text-indigo-400">Pedagógusonkénti és intézményi TTF export</div>
                     </div>
                   </button>
                 )}

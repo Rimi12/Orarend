@@ -22,6 +22,7 @@ import { GymScheduleModal } from './components/GymScheduleModal.tsx';
 import { AssistantSelectionModal } from './components/AssistantSelectionModal.tsx';
 import { AssistantScheduleModal } from './components/AssistantScheduleModal.tsx';
 import { CurriculumManagementModal } from './components/CurriculumManagementModal.tsx';
+import { KretaCurriculumDiffModal } from './components/KretaCurriculumDiffModal.tsx';
 import { CloudSyncModal } from './components/CloudSyncModal.tsx';
 import { Header } from './components/Header.tsx';
 import { useAutoScheduler } from './hooks/useAutoScheduler.ts';
@@ -55,6 +56,7 @@ const Main: React.FC = () => {
   
   const [isAvailabilityModalOpen, setIsAvailabilityModalOpen] = useState(false);
   const [isCurriculumModalOpen, setIsCurriculumModalOpen] = useState(false);
+  const [isKretaCurriculumModalOpen, setIsKretaCurriculumModalOpen] = useState(false);
   const [isAutoSchedulerOpen, setIsAutoSchedulerOpen] = useState(false);
   const [isGymModalOpen, setIsGymModalOpen] = useState(false);
   const [isAssistantSelectionOpen, setIsAssistantSelectionOpen] = useState(false);
@@ -332,6 +334,7 @@ const Main: React.FC = () => {
         setIsGymModalOpen={setIsGymModalOpen}
         setIsAssistantModalOpen={() => setIsAssistantSelectionOpen(true)}
         setIsCurriculumModalOpen={setIsCurriculumModalOpen}
+        setIsKretaCurriculumModalOpen={setIsKretaCurriculumModalOpen}
         handleExportForKreta={handleOpenFullKretaExport}
         handleExportTeacherForKreta={handleOpenTeacherKretaExport}
         handleExportAllTeachersForKreta={handleExportAllTeachersForKreta}
@@ -526,12 +529,22 @@ const Main: React.FC = () => {
         subjects={currentState.subjects}
         allocations={currentState.allocations}
         placedLessons={currentState.placedLessons}
-        initialAllocations={currentState.initialAllocations || currentState.allocations}
         reassignAllocationTeacher={reassignAllocationTeacher}
         updateAllocationHours={updateAllocationHours}
         addCustomAllocation={addCustomAllocation}
         removeCustomAllocation={removeCustomAllocation}
+      />
+
+      <KretaCurriculumDiffModal
+        isOpen={isKretaCurriculumModalOpen}
+        onClose={() => setIsKretaCurriculumModalOpen(false)}
+        teachers={currentState.teachers}
+        classes={currentState.classes}
+        subjects={currentState.subjects}
+        allocations={currentState.allocations}
+        initialAllocations={currentState.initialAllocations || currentState.allocations}
         onExportCurriculum={handleExportCurriculumForKreta}
+        selectedTeacherId={selectedTeacherId}
       />
 
       <CloudSyncModal
