@@ -80,207 +80,138 @@ export const Header: React.FC<HeaderProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
   return (
-    <header className="bg-white dark:bg-gray-800 shadow-md rounded-2xl p-4 mb-6 flex flex-wrap items-center justify-between gap-4 no-print">
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-2xl">🗓️</span>
-          <div>
-            <h1 className="text-lg font-bold text-gray-900 dark:text-white leading-tight">Órarend Tervező</h1>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200">
-              v3.1.0 (Kréta export & helyiségek)
-            </span>
+    <header className="bg-white dark:bg-gray-800 shadow-md rounded-2xl p-4 mb-6 flex flex-col gap-3.5 no-print">
+      
+      {/* ── 1. SOR: FŐMENÜ ÉS MŰVELETI GOMBOK ── */}
+      <div className="flex flex-wrap items-center justify-between gap-3 w-full">
+        {/* Bal oldal: Cím, verzió, szoba, visszavonás */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">🗓️</span>
+            <div>
+              <h1 className="text-lg font-bold text-gray-900 dark:text-white leading-tight">Órarend Tervező</h1>
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200">
+                v3.1.0 (Kréta export & helyiségek)
+              </span>
+            </div>
+          </div>
+
+          {onOpenCloudSync && (
+            <button
+              onClick={onOpenCloudSync}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+                syncStatus === 'connected'
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-700 dark:bg-emerald-950/50 dark:border-emerald-700 dark:text-emerald-300 hover:bg-emerald-100'
+                  : syncStatus === 'syncing'
+                  ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950/50 dark:border-blue-700 dark:text-blue-300 animate-pulse'
+                  : 'bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-950/50 dark:border-amber-700 dark:text-amber-300 hover:bg-amber-100'
+              }`}
+              title="Közös szerkesztés (Firebase szinkronizáció) beállításai"
+            >
+              <span className={`w-2 h-2 rounded-full ${
+                syncStatus === 'connected' ? 'bg-emerald-500' : syncStatus === 'syncing' ? 'bg-blue-500' : 'bg-amber-500'
+              }`} />
+              <span className="hidden sm:inline">
+                {syncStatus === 'connected' ? `Élő szoba: ${roomCode}` : syncStatus === 'syncing' ? 'Szinkronizálás...' : 'Offline szoba'}
+              </span>
+            </button>
+          )}
+
+          <div className="flex items-center gap-1 border-l border-gray-300 dark:border-gray-600 pl-2">
+            <button
+              onClick={undo}
+              disabled={!canUndo}
+              className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+              title="Visszavonás (Ctrl+Z)"
+            >
+              <ArrowUturnLeftIcon className="w-5 h-5" />
+            </button>
+            <button
+              onClick={redo}
+              disabled={!canRedo}
+              className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+              title="Újra (Ctrl+Y)"
+            >
+              <ArrowUturnRightIcon className="w-5 h-5" />
+            </button>
           </div>
         </div>
 
-        {onOpenCloudSync && (
+        {/* Jobb oldal: Főmenü modul gombok & Rendszer gombok */}
+        <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={onOpenCloudSync}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
-              syncStatus === 'connected'
-                ? 'bg-emerald-50 border-emerald-300 text-emerald-700 dark:bg-emerald-950/50 dark:border-emerald-700 dark:text-emerald-300 hover:bg-emerald-100'
-                : syncStatus === 'syncing'
-                ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950/50 dark:border-blue-700 dark:text-blue-300 animate-pulse'
-                : 'bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-950/50 dark:border-amber-700 dark:text-amber-300 hover:bg-amber-100'
-            }`}
-            title="Közös szerkesztés (Firebase szinkronizáció) beállításai"
+            onClick={() => setIsCurriculumModalOpen(true)}
+            className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors flex items-center gap-2 shadow-xs text-sm"
+            title="Tantárgyfelosztás szerkesztése, tanárcsere és óraszámok módosítása"
           >
-            <span className={`w-2 h-2 rounded-full ${
-              syncStatus === 'connected' ? 'bg-emerald-500' : syncStatus === 'syncing' ? 'bg-blue-500' : 'bg-amber-500'
-            }`} />
-            <span className="hidden sm:inline">
-              {syncStatus === 'connected' ? `Élő szoba: ${roomCode}` : syncStatus === 'syncing' ? 'Szinkronizálás...' : 'Offline szoba'}
-            </span>
+            <span className="text-base">📚</span>
+            <span className="hidden lg:inline">Tantárgyfelosztás</span>
           </button>
-        )}
-
-        <div className="flex items-center gap-1 border-l border-gray-300 dark:border-gray-600 pl-2">
-          <button
-            onClick={undo}
-            disabled={!canUndo}
-            className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
-            title="Visszavonás (Ctrl+Z)"
-          >
-            <ArrowUturnLeftIcon className="w-5 h-5" />
-          </button>
-          <button
-            onClick={redo}
-            disabled={!canRedo}
-            className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
-            title="Újra (Ctrl+Y)"
-          >
-            <ArrowUturnRightIcon className="w-5 h-5" />
-          </button>
-        </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="flex items-center gap-2">
-          <label htmlFor="class-select" className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-            Osztály:
-          </label>
-          <select
-            id="class-select"
-            value={selectedClassId || ''}
-            onChange={(e) => setSelectedClassId(e.target.value)}
-            className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm font-medium"
-          >
-            <option value="">Válassz osztályt...</option>
-            {sortedClasses.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-          {selectedClassId && onClearClassTimetable && (
+          {setIsKretaCurriculumModalOpen && (
             <button
-              onClick={onClearClassTimetable}
-              className="p-2 bg-red-100 hover:bg-red-200 text-red-700 dark:bg-red-900/40 dark:hover:bg-red-800/60 dark:text-red-300 rounded-lg transition-colors"
-              title="Kijelölt osztály összes órájának törlése"
+              onClick={() => setIsKretaCurriculumModalOpen(true)}
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors flex items-center gap-2 shadow-xs text-sm"
+              title="Kréta tantárgyfelosztás összehasonlítása és pedagógusonkénti exportálása"
             >
-              <TrashIcon className="w-4 h-4" />
+              <span className="text-base">📊</span>
+              <span className="hidden lg:inline">Kréta TTF Összevetés</span>
             </button>
           )}
-        </div>
-        <div className="flex items-center gap-2">
-          <label htmlFor="teacher-select" className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-            Pedagógus:
-          </label>
-          <select
-            id="teacher-select"
-            value={selectedTeacherId || ''}
-            onChange={(e) => setSelectedTeacherId(e.target.value)}
-            className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm font-medium"
-          >
-            <option value="">Válassz pedagógust...</option>
-            {teacherHourCounts.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.display}
-              </option>
-            ))}
-          </select>
-          {selectedTeacher && (
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setIsAvailabilityModalOpen(true)}
-                className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-semibold transition-colors"
-                title="Pedagógus elérhetőségének (nem ráérésének) beállítása"
-              >
-                Nem ér rá
-              </button>
-              {handleExportTeacherForKreta && (
-                <button
-                  onClick={() => handleExportTeacherForKreta(selectedTeacher.id)}
-                  className="px-3 py-2 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 dark:bg-cyan-950/60 dark:hover:bg-cyan-900/60 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1"
-                  title="Pedagógus Kréta import fájl (.xlsx) elkészítése"
-                >
-                  <Squares2X2Icon className="w-3.5 h-3.5" />
-                  <span>Kréta Export</span>
-                </button>
-              )}
-              {onClearTeacherTimetable && (
-                <button
-                  onClick={onClearTeacherTimetable}
-                  className="p-2 bg-red-100 hover:bg-red-200 text-red-700 dark:bg-red-900/40 dark:hover:bg-red-800/60 dark:text-red-300 rounded-lg transition-colors"
-                  title="Kijelölt pedagógus összes órájának törlése"
-                >
-                  <TrashIcon className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          onClick={() => setIsCurriculumModalOpen(true)}
-          className="px-3.5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors flex items-center gap-2 shadow-xs"
-          title="Tantárgyfelosztás szerkesztése, tanárcsere és óraszámok módosítása"
-        >
-          <span className="text-lg">📚</span>
-          <span className="hidden lg:inline">Tantárgyfelosztás</span>
-        </button>
-        {setIsKretaCurriculumModalOpen && (
           <button
-            onClick={() => setIsKretaCurriculumModalOpen(true)}
-            className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors flex items-center gap-2 shadow-xs"
-            title="Kréta tantárgyfelosztás összehasonlítása és pedagógusonkénti exportálása"
+            onClick={onStartAutoSchedule}
+            className="px-3.5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all flex items-center gap-2 text-sm"
+            title="Automatikus AI órarend-tervezés"
           >
-            <span className="text-lg">📊</span>
-            <span className="hidden lg:inline">Kréta TTF Összevetés</span>
+            <SparklesIcon className="w-4 h-4 text-yellow-300 animate-pulse" />
+            <span className="hidden lg:inline">AI Tervezés</span>
           </button>
-        )}
-        <button
-          onClick={onStartAutoSchedule}
-          className="px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all flex items-center gap-2"
-          title="Automatikus AI órarend-tervezés"
-        >
-          <SparklesIcon className="w-5 h-5 text-yellow-300 animate-pulse" />
-          <span className="hidden lg:inline">AI Tervezés</span>
-        </button>
-        <button
+          <button
             onClick={() => setIsStandbySelectionModalOpen(true)}
-            className="px-4 py-2.5 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-colors flex items-center gap-2"
+            className="px-3.5 py-2 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-colors flex items-center gap-2 text-sm"
             title="Rendelkezésre állási beosztás generálása"
           >
-            <UsersIcon className="w-5 h-5" />
+            <UsersIcon className="w-4 h-4" />
             <span className="hidden lg:inline">Rendelkezésre Állás</span>
           </button>
           <button
             onClick={() => setIsGymModalOpen(true)}
-            className="px-4 py-2.5 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors flex items-center gap-2"
+            className="px-3.5 py-2 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors flex items-center gap-2 text-sm"
             title="Tornatermi (Kis és Nagy tornaterem) órarend beosztás"
           >
-            <span className="text-lg">🏀</span>
+            <span className="text-base">🏀</span>
             <span className="hidden lg:inline">Tornatermek</span>
           </button>
           <button
             onClick={() => setIsAssistantModalOpen(true)}
-            className="px-4 py-2.5 bg-teal-600 text-white font-semibold rounded-lg hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 transition-colors flex items-center gap-2"
+            className="px-3.5 py-2 bg-teal-600 text-white font-semibold rounded-lg hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 transition-colors flex items-center gap-2 text-sm"
             title="Asszisztens beosztás szerkesztése"
           >
-            <span className="text-lg">👤</span>
+            <span className="text-base">👤</span>
             <span className="hidden lg:inline">Asszisztens</span>
           </button>
           <button
             onClick={() => setIsRoomModalOpen(true)}
-            className="px-4 py-2.5 bg-amber-600 text-white font-semibold rounded-lg hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-colors flex items-center gap-2"
+            className="px-3.5 py-2 bg-amber-600 text-white font-semibold rounded-lg hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-colors flex items-center gap-2 text-sm"
             title="Kréta tantermek és helyiségek szerkesztése (36 hivatalos terem)"
           >
-            <span className="text-lg">🏫</span>
+            <span className="text-base">🏫</span>
             <span className="hidden lg:inline">Termek ({rooms.length})</span>
           </button>
+
+          {/* Kréta Export dropdown */}
           <div className="relative" ref={kretaMenuRef}>
-            <div className="inline-flex rounded-lg shadow-sm">
+            <div className="inline-flex rounded-lg shadow-xs">
               <button
                 onClick={handleExportForKreta}
-                className="px-3.5 py-2.5 bg-cyan-600 text-white font-semibold rounded-l-lg hover:bg-cyan-700 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-colors flex items-center gap-2"
+                className="px-3 py-2 bg-cyan-600 text-white font-semibold rounded-l-lg hover:bg-cyan-700 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-colors flex items-center gap-1.5 text-sm"
                 title="Teljes órarend exportálása Kréta import formátumban (.xlsx)"
               >
-                <Squares2X2Icon className="w-5 h-5" />
+                <Squares2X2Icon className="w-4 h-4" />
                 <span className="hidden lg:inline">Kréta Export</span>
               </button>
               <button
                 onClick={() => setIsKretaMenuOpen(prev => !prev)}
-                className="px-2 py-2.5 bg-cyan-700 text-white font-semibold rounded-r-lg hover:bg-cyan-800 border-l border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-colors"
+                className="px-2 py-2 bg-cyan-700 text-white font-semibold rounded-r-lg hover:bg-cyan-800 border-l border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-colors"
                 title="Kréta export opciók (Tanáronkénti / Teljes / TTF Kereszttábla)"
               >
                 <svg className={`w-4 h-4 transition-transform ${isKretaMenuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -365,46 +296,137 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             )}
           </div>
-        <div className="flex items-center gap-2 border-l border-gray-300 dark:border-gray-600 pl-2 sm:pl-4">
+
+          {/* Rendszer gombok */}
+          <div className="flex items-center gap-1.5 border-l border-gray-300 dark:border-gray-600 pl-2">
             <button
               onClick={() => setIsSettingsModalOpen(true)}
-              className="p-2.5 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 transition-colors"
+              className="p-2 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 transition-colors"
               title="Google API Beállítások"
             >
-              <CogIcon className="w-5 h-5" />
+              <CogIcon className="w-4 h-4" />
             </button>
             {googleDrive.isReady && (
-            <>
-              {googleDrive.isLoggedIn ? (
-                <div className="flex items-center gap-2">
-                  <img src={googleDrive.userProfile?.picture} alt="profilkép" className="w-8 h-8 rounded-full" />
-                  <button onClick={googleDrive.signOut} disabled={googleDrive.isAuthenticating} className="text-sm font-semibold text-gray-600 hover:text-red-500 disabled:opacity-50">Kijelentkezés</button>
-                </div>
-              ) : (
-                <button onClick={googleDrive.signIn} disabled={googleDrive.isAuthenticating} className="px-3 py-2.5 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors flex items-center gap-2 disabled:opacity-50">
-                  {googleDrive.isAuthenticating ? (<><SpinnerIcon className="w-5 h-5" /> <span className="hidden sm:inline">Bejelentkezés...</span></>) : (<><GoogleIcon className="w-5 h-5"/> <span className="hidden sm:inline">Bejelentkezés Google-lel</span></>)}
-                </button>
-              )}
-            </>
-          )}
-          {googleDrive.isConfigured && 
-            <button onClick={handleSaveToDrive} disabled={!googleDrive.isLoggedIn || saveStatus !== 'idle'} className="px-3 py-2.5 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-green-500 transition-all flex items-center gap-2" title="Mentés a Google Drive-ra">
-                <SaveIcon className="w-5 h-5" />
+              <>
+                {googleDrive.isLoggedIn ? (
+                  <div className="flex items-center gap-2">
+                    <img src={googleDrive.userProfile?.picture} alt="profilkép" className="w-7 h-7 rounded-full" />
+                    <button onClick={googleDrive.signOut} disabled={googleDrive.isAuthenticating} className="text-xs font-semibold text-gray-600 hover:text-red-500 disabled:opacity-50">Kijelentkezés</button>
+                  </div>
+                ) : (
+                  <button onClick={googleDrive.signIn} disabled={googleDrive.isAuthenticating} className="px-2.5 py-1.5 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors flex items-center gap-1.5 text-xs disabled:opacity-50">
+                    {googleDrive.isAuthenticating ? (<><SpinnerIcon className="w-4 h-4" /> <span className="hidden sm:inline">Bejelentkezés...</span></>) : (<><GoogleIcon className="w-4 h-4"/> <span className="hidden sm:inline">Google</span></>)}
+                  </button>
+                )}
+              </>
+            )}
+            {googleDrive.isConfigured && 
+              <button onClick={handleSaveToDrive} disabled={!googleDrive.isLoggedIn || saveStatus !== 'idle'} className="px-2.5 py-1.5 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-green-500 transition-all flex items-center gap-1.5 text-xs" title="Mentés a Google Drive-ra">
+                <SaveIcon className="w-4 h-4" />
                 <span className="hidden sm:inline">{saveStatus === 'idle' ? 'Mentés Drive-ra' : saveStatus === 'saving' ? 'Mentés...' : 'Mentve!'}</span>
+              </button>
+            }
+            <button onClick={handleSaveToFile} className="p-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors" title="Mentés fájlba (.json)">
+              <DocumentArrowDownIcon className="w-4 h-4" />
             </button>
-          }
-          <button onClick={handleSaveToFile} className="px-3 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors flex items-center gap-2" title="Mentés fájlba (.json)">
-              <DocumentArrowDownIcon className="w-5 h-5" />
-          </button>
-          <input type="file" ref={updateFileRef} className="sr-only" onChange={handleAllocationUpdateFileChange} accept=".xlsx, .xls" />
-          <button onClick={() => updateFileRef.current?.click()} className="px-3 py-2.5 bg-teal-600 text-white font-semibold rounded-lg hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 transition-colors flex items-center gap-2" title="Tantárgyfelosztás frissítése (.xlsx)">
-              <DocumentRefreshIcon className="w-5 h-5" />
-          </button>
-          <button onClick={handleReset} className="px-3 py-2.5 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors flex items-center gap-2" title="Újrakezdés, minden adat törlése">
-              <ArrowPathIcon className="w-5 h-5" />
-          </button>
+            <input type="file" ref={updateFileRef} className="sr-only" onChange={handleAllocationUpdateFileChange} accept=".xlsx, .xls" />
+            <button onClick={() => updateFileRef.current?.click()} className="p-2 bg-teal-600 text-white font-semibold rounded-lg hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 transition-colors" title="Tantárgyfelosztás frissítése (.xlsx)">
+              <DocumentRefreshIcon className="w-4 h-4" />
+            </button>
+            <button onClick={handleReset} className="p-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors" title="Újrakezdés, minden adat törlése">
+              <ArrowPathIcon className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* ── 2. SOR: OSZTÁLY ÉS PEDAGÓGUS VÁLASZTÓK ── */}
+      <div className="flex flex-wrap items-center justify-between gap-4 pt-3 border-t border-gray-200/80 dark:border-gray-700/80 w-full bg-gray-50/70 dark:bg-gray-850/60 p-2.5 rounded-xl">
+        <div className="flex flex-wrap items-center gap-6">
+          {/* Osztály választó */}
+          <div className="flex items-center gap-2.5">
+            <label htmlFor="class-select" className="text-sm font-bold text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
+              <span>🏫</span>
+              <span>Osztály:</span>
+            </label>
+            <select
+              id="class-select"
+              value={selectedClassId || ''}
+              onChange={(e) => setSelectedClassId(e.target.value)}
+              className="px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm font-semibold shadow-xs min-w-[180px]"
+            >
+              <option value="">Válassz osztályt...</option>
+              {sortedClasses.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            {selectedClassId && onClearClassTimetable && (
+              <button
+                onClick={onClearClassTimetable}
+                className="p-2 bg-red-100 hover:bg-red-200 text-red-700 dark:bg-red-900/40 dark:hover:bg-red-800/60 dark:text-red-300 rounded-lg transition-colors"
+                title="Kijelölt osztály összes órájának törlése"
+              >
+                <TrashIcon className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Pedagógus választó */}
+          <div className="flex items-center gap-2.5">
+            <label htmlFor="teacher-select" className="text-sm font-bold text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
+              <span>👤</span>
+              <span>Pedagógus:</span>
+            </label>
+            <select
+              id="teacher-select"
+              value={selectedTeacherId || ''}
+              onChange={(e) => setSelectedTeacherId(e.target.value)}
+              className="px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm font-semibold shadow-xs min-w-[220px]"
+            >
+              <option value="">Válassz pedagógust...</option>
+              {teacherHourCounts.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.display}
+                </option>
+              ))}
+            </select>
+
+            {selectedTeacher && (
+              <div className="flex items-center gap-1.5 ml-1">
+                <button
+                  onClick={() => setIsAvailabilityModalOpen(true)}
+                  className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-bold transition-colors"
+                  title="Pedagógus elérhetőségének (nem ráérésének) beállítása"
+                >
+                  Nem ér rá
+                </button>
+                {handleExportTeacherForKreta && (
+                  <button
+                    onClick={() => handleExportTeacherForKreta(selectedTeacher.id)}
+                    className="px-3 py-2 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 dark:bg-cyan-950/60 dark:hover:bg-cyan-900/60 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800 rounded-lg text-xs font-bold transition-colors flex items-center gap-1"
+                    title="Pedagógus Kréta import fájl (.xlsx) elkészítése"
+                  >
+                    <Squares2X2Icon className="w-3.5 h-3.5" />
+                    <span>Kréta Export</span>
+                  </button>
+                )}
+                {onClearTeacherTimetable && (
+                  <button
+                    onClick={onClearTeacherTimetable}
+                    className="p-2 bg-red-100 hover:bg-red-200 text-red-700 dark:bg-red-900/40 dark:hover:bg-red-800/60 dark:text-red-300 rounded-lg transition-colors"
+                    title="Kijelölt pedagógus összes órájának törlése"
+                  >
+                    <TrashIcon className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
     </header>
   );
 };
