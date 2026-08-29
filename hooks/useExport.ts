@@ -435,7 +435,7 @@ export const useExport = () => {
     }
 
     // Sort teachers alphabetically
-    exportTeachers = [...exportTeachers].sort((a, b) => a.name.localeCompare(b, 'hu-HU'));
+    exportTeachers = [...exportTeachers].sort((a, b) => a.name.localeCompare(b.name, 'hu-HU'));
 
     // Group rows by (Class, Group, Subject)
     interface RowData {
@@ -586,26 +586,39 @@ export const useExport = () => {
     return workbook;
   }, [currentState]);
 
-  // ── Handle Full Curriculum Export (Whole School Kréta TTF) ───────────────────
-  const handleExportCurriculumForKreta = useCallback((targetAllocations?: Allocation[], teacherIdFilter?: string) => {
+  // ── Handle Full Curriculum Export (Whole School or Single Teacher Kréta TTF) ──
+  const handleExportCurriculumForKreta = useCallback((
+    param1?: string | Allocation[],
+    param2?: string
+  ) => {
     if (!currentState) {
       alert("Nincs adat az exportáláshoz.");
       return;
     }
 
-    const allocs = targetAllocations || currentState.allocations;
-    if (allocs.length === 0) {
+    let targetAllocs: Allocation[] = currentState.allocations;
+    let teacherFilter: string | undefined = undefined;
+
+    if (Array.isArray(param1)) {
+      targetAllocs = param1;
+      teacherFilter = param2;
+    } else if (typeof param1 === 'string') {
+      teacherFilter = param1;
+      targetAllocs = currentState.allocations;
+    }
+
+    if (!targetAllocs || targetAllocs.length === 0) {
       alert("Nincsenek tantárgyfelosztási adatok.");
       return;
     }
 
     try {
-      const workbook = buildKretaCrossTableCurriculumWorkbook(allocs, teacherIdFilter);
+      const workbook = buildKretaCrossTableCurriculumWorkbook(targetAllocs, teacherFilter);
       if (!workbook) return;
 
       let fileName = 'tantargyfelosztas_kreta_kereszttablas_import.xlsx';
-      if (teacherIdFilter) {
-        const teacher = findTeacher(teacherIdFilter);
+      if (teacherFilter) {
+        const teacher = findTeacher(teacherFilter);
         const safeTeacherName = teacher ? teacher.name.replace(/[\\/:*?"<>| ]/g, '_') : 'tanar';
         fileName = `${safeTeacherName}_tantargyfelosztas_kreta_import.xlsx`;
       }
@@ -630,7 +643,7 @@ export const useExport = () => {
       alert(`Sikeres Kréta tantárgyfelosztás export!\nFájlnév: ${fileName}`);
     } catch (e) {
       console.error("Hiba a TTF exportálás során:", e);
-      alert("Hiba történt a kereszttáblás tantárgyfelosztás Excel generálása közben.");
+      alert("Hiba történt a kereszttáblás tantárgyfelosztás Excel generálása közben: " + (e as any)?.message);
     }
   }, [currentState, buildKretaCrossTableCurriculumWorkbook, findTeacher]);
 
