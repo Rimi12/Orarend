@@ -84,6 +84,21 @@ export interface ParsedData {
   allocations: Allocation[];
 }
 
+export interface KretaCombinedImportResult {
+  state: AppHistoryState;
+  roomMap: Record<string, string>;
+  rooms: string[];
+  stats: {
+    totalLessonsPlaced: number;
+    teachersCount: number;
+    classesCount: number;
+    subjectsCount: number;
+    allocationsCount: number;
+    ttfAllocationsCount?: number;
+    unplacedHoursCount: number;
+  };
+}
+
 export interface AllocationUpdateSummary {
   newTeachers: Teacher[];
   removedTeachers: Teacher[];

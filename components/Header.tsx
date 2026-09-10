@@ -12,6 +12,7 @@ import { DocumentRefreshIcon } from './icons/DocumentRefreshIcon.tsx';
 import { ArrowPathIcon } from './icons/ArrowPathIcon.tsx';
 import { SparklesIcon } from './icons/SparklesIcon.tsx';
 import { TrashIcon } from './icons/TrashIcon.tsx';
+import { ArrowDownTrayIcon } from './icons/ArrowDownTrayIcon.tsx';
 import type { Class, Teacher } from '../types.ts';
 import { useTimetable } from '../contexts/TimetableContext.tsx';
 
@@ -33,6 +34,7 @@ interface HeaderProps {
   setIsAssistantModalOpen: (isOpen: boolean) => void;
   setIsCurriculumModalOpen: (isOpen: boolean) => void;
   setIsKretaCurriculumModalOpen?: (isOpen: boolean) => void;
+  setIsKretaImportModalOpen?: (isOpen: boolean) => void;
   handleExportForKreta: () => void;
   handleExportTeacherForKreta?: (teacherId?: string) => void;
   handleExportAllTeachersForKreta?: () => void;
@@ -59,7 +61,7 @@ export const Header: React.FC<HeaderProps> = ({
   selectedClassId, setSelectedClassId, sortedClasses,
   selectedTeacherId, setSelectedTeacherId, teacherHourCounts, selectedTeacher,
   setIsAvailabilityModalOpen, setIsStandbySelectionModalOpen, setIsGymModalOpen, setIsAssistantModalOpen,
-  setIsCurriculumModalOpen, setIsKretaCurriculumModalOpen,
+  setIsCurriculumModalOpen, setIsKretaCurriculumModalOpen, setIsKretaImportModalOpen,
   handleExportForKreta, handleExportTeacherForKreta, handleExportAllTeachersForKreta, setIsSettingsModalOpen,
   googleDrive, saveStatus, handleSaveToDrive, handleSaveToFile,
   updateFileRef, handleAllocationUpdateFileChange, handleReset,
@@ -293,6 +295,23 @@ export const Header: React.FC<HeaderProps> = ({
                     </div>
                   </button>
                 )}
+
+                {/* 5. Direct Kréta Timetable & TTF Import */}
+                {setIsKretaImportModalOpen && (
+                  <button
+                    onClick={() => {
+                      setIsKretaMenuOpen(false);
+                      setIsKretaImportModalOpen(true);
+                    }}
+                    className="w-full text-left px-4 py-2.5 bg-emerald-50/50 hover:bg-emerald-100/70 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/50 text-sm text-emerald-900 dark:text-emerald-200 flex items-start gap-2.5 transition-colors border-t border-emerald-100 dark:border-emerald-800/50"
+                  >
+                    <span className="text-base mt-0.5">📥</span>
+                    <div>
+                      <div className="font-bold text-emerald-950 dark:text-emerald-100">Kréta Órarend & TTF Betöltése...</div>
+                      <div className="text-xs text-emerald-600 dark:text-emerald-400">Exportált heti órarend és TTF beolvasása</div>
+                    </div>
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -333,6 +352,15 @@ export const Header: React.FC<HeaderProps> = ({
             <button onClick={() => updateFileRef.current?.click()} className="p-2 bg-teal-600 text-white font-semibold rounded-lg hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 transition-colors" title="Tantárgyfelosztás frissítése (.xlsx)">
               <DocumentRefreshIcon className="w-4 h-4" />
             </button>
+            {setIsKretaImportModalOpen && (
+              <button
+                onClick={() => setIsKretaImportModalOpen(true)}
+                className="p-2 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
+                title="Kréta Órarend és Tantárgyfelosztás betöltése (.xlsx)"
+              >
+                <ArrowDownTrayIcon className="w-4 h-4" />
+              </button>
+            )}
             <button onClick={handleReset} className="p-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors" title="Újrakezdés, minden adat törlése">
               <ArrowPathIcon className="w-4 h-4" />
             </button>

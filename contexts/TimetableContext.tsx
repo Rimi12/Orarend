@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
-import type { Teacher, Class, Subject, Allocation, PlacedLesson, UnplacedLesson, TimetableCellData, Collision, SavedState, ParsedData, AllocationUpdateSummary, AppHistoryState } from '../types.ts';
+import type { Teacher, Class, Subject, Allocation, PlacedLesson, UnplacedLesson, TimetableCellData, Collision, SavedState, ParsedData, AllocationUpdateSummary, AppHistoryState, KretaCombinedImportResult } from '../types.ts';
 import { NUMBER_OF_DAYS, NUMBER_OF_PERIODS, TEACHER_COLORS } from '../constants.ts';
 import { migrateHittanState } from '../utils.ts';
 import { getActiveRoomCode, setActiveRoomCode, subscribeToCloudDoc, saveToCloudDoc, CLIENT_ID } from '../services/firebaseSync.ts';
@@ -48,6 +48,8 @@ interface TimetableContextType {
   // Room Management
   rooms: string[];
   setRooms: React.Dispatch<React.SetStateAction<string[]>>;
+  roomAssignments: Record<string, string>;
+  setRoomAssignments: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   addRoom: (name: string) => void;
   updateRoom: (oldName: string, newName: string) => void;
   deleteRoom: (name: string) => void;
@@ -55,6 +57,7 @@ interface TimetableContextType {
   importRooms: (newRooms: string[]) => void;
   isRoomModalOpen: boolean;
   setIsRoomModalOpen: (open: boolean) => void;
+  loadCombinedKretaData: (result: KretaCombinedImportResult) => void;
 
   // Cloud Sync
   roomCode: string;
@@ -98,6 +101,21 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         return KRETA_HELYISEG_DEFAULT;
     });
     const [isRoomModalOpen, setIsRoomModalOpen] = useState<boolean>(false);
+
+    // ── Room Assignments for lessons (e.g. from Kréta import) ───────────────────
+    const [roomAssignments, setRoomAssignments] = useState<Record<string, string>>(() => {
+        try {
+            const saved = localStorage.getItem('timetable_lesson_rooms_v1');
+            if (saved) return JSON.parse(saved);
+        } catch {}
+        return {};
+    });
+
+    useEffect(() => {
+        try {
+            localStorage.setItem('timetable_lesson_rooms_v1', JSON.stringify(roomAssignments));
+        } catch {}
+    }, [roomAssignments]);
 
     useEffect(() => {
         try {
@@ -249,6 +267,48 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setDriveFileId(null);
         setHistory([initialState]);
         setHistoryIndex(0);
+        try {
+            const stateToSave: SavedState = {
+                ...initialState,
+                version: '2.0.0',
+                selectedTeacherId: initialState.teachers[0]?.id || null,
+                selectedClassId: initialState.classes[0]?.id || null,
+                driveFileId: null,
+            };
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stateToSave));
+        } catch {}
+        if (roomCode) {
+            saveToCloudDoc(`rooms/${roomCode}/timetable/main`, initialState);
+        }
+    }, [roomCode]);
+
+    const loadCombinedKretaData = useCallback((result: KretaCombinedImportResult) => {
+        const initialState = result.state;
+        setSelectedTeacherId(initialState.teachers[0]?.id || null);
+        setSelectedClassId(initialState.classes[0]?.id || null);
+        setDriveFileId(null);
+        setHistory([initialState]);
+        setHistoryIndex(0);
+
+        if (result.roomMap && Object.keys(result.roomMap).length > 0) {
+            setRoomAssignments(prev => {
+                const merged = { ...prev, ...result.roomMap };
+                try {
+                    localStorage.setItem('timetable_lesson_rooms_v1', JSON.stringify(merged));
+                } catch {}
+                return merged;
+            });
+        }
+        if (result.rooms && result.rooms.length > 0) {
+            setRooms(prev => {
+                const combined = Array.from(new Set([...prev, ...result.rooms])).sort((a, b) => a.localeCompare(b, 'hu-HU'));
+                try {
+                    localStorage.setItem(ROOMS_STORAGE_KEY, JSON.stringify(combined));
+                } catch {}
+                return combined;
+            });
+        }
+
         try {
             const stateToSave: SavedState = {
                 ...initialState,
@@ -808,6 +868,8 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         // Room Management
         rooms,
         setRooms,
+        roomAssignments,
+        setRoomAssignments,
         addRoom,
         updateRoom,
         deleteRoom,
@@ -815,6 +877,7 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         importRooms,
         isRoomModalOpen,
         setIsRoomModalOpen,
+        loadCombinedKretaData,
 
         roomCode,
         syncStatus,
@@ -834,7 +897,7 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         selectedTeacherId, selectedClassId, driveFileId,
         setSelectedTeacherId, setSelectedClassId, setDriveFileId,
         reassignAllocationTeacher, updateAllocationHours, addCustomAllocation, removeCustomAllocation,
-        rooms, addRoom, updateRoom, deleteRoom, resetRoomsToDefault, importRooms, isRoomModalOpen,
+        rooms, setRooms, roomAssignments, setRoomAssignments, addRoom, updateRoom, deleteRoom, resetRoomsToDefault, importRooms, isRoomModalOpen, loadCombinedKretaData,
         roomCode, syncStatus, lastSyncedAt, isSyncModalOpen, setRoomCode, pushToCloud, pullFromCloud
     ]);
 

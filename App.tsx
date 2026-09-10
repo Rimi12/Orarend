@@ -23,6 +23,7 @@ import { AssistantSelectionModal } from './components/AssistantSelectionModal.ts
 import { AssistantScheduleModal } from './components/AssistantScheduleModal.tsx';
 import { CurriculumManagementModal } from './components/CurriculumManagementModal.tsx';
 import { KretaCurriculumDiffModal } from './components/KretaCurriculumDiffModal.tsx';
+import { KretaTimetableImportModal } from './components/KretaTimetableImportModal.tsx';
 import { CloudSyncModal } from './components/CloudSyncModal.tsx';
 import { Header } from './components/Header.tsx';
 import { useAutoScheduler } from './hooks/useAutoScheduler.ts';
@@ -51,12 +52,14 @@ const Main: React.FC = () => {
     setTeacherTraveling, setPlacedLessons,
     reassignAllocationTeacher, updateAllocationHours, addCustomAllocation, removeCustomAllocation,
     isRoomModalOpen, setIsRoomModalOpen,
+    loadCombinedKretaData,
     roomCode, syncStatus, lastSyncedAt, isSyncModalOpen, setIsSyncModalOpen, setRoomCode, pushToCloud, pullFromCloud
   } = useTimetable();
   
   const [isAvailabilityModalOpen, setIsAvailabilityModalOpen] = useState(false);
   const [isCurriculumModalOpen, setIsCurriculumModalOpen] = useState(false);
   const [isKretaCurriculumModalOpen, setIsKretaCurriculumModalOpen] = useState(false);
+  const [isKretaImportModalOpen, setIsKretaImportModalOpen] = useState(false);
   const [isAutoSchedulerOpen, setIsAutoSchedulerOpen] = useState(false);
   const [isGymModalOpen, setIsGymModalOpen] = useState(false);
   const [isAssistantSelectionOpen, setIsAssistantSelectionOpen] = useState(false);
@@ -307,6 +310,7 @@ const Main: React.FC = () => {
         onLoadFromSaveFile={handleLoadStateFromJson}
         googleDrive={googleDrive}
         onLoadFromDrive={handleLoadFromDrive}
+        onCombinedKretaLoaded={loadCombinedKretaData}
       />;
   }
   
@@ -335,6 +339,7 @@ const Main: React.FC = () => {
         setIsAssistantModalOpen={() => setIsAssistantSelectionOpen(true)}
         setIsCurriculumModalOpen={setIsCurriculumModalOpen}
         setIsKretaCurriculumModalOpen={setIsKretaCurriculumModalOpen}
+        setIsKretaImportModalOpen={setIsKretaImportModalOpen}
         handleExportForKreta={handleOpenFullKretaExport}
         handleExportTeacherForKreta={handleOpenTeacherKretaExport}
         handleExportAllTeachersForKreta={handleExportAllTeachersForKreta}
@@ -568,6 +573,14 @@ const Main: React.FC = () => {
       <RoomManagementModal
         isOpen={isRoomModalOpen}
         onClose={() => setIsRoomModalOpen(false)}
+      />
+
+      <KretaTimetableImportModal
+        isOpen={isKretaImportModalOpen}
+        onClose={() => setIsKretaImportModalOpen(false)}
+        onImportConfirmed={(result) => {
+          loadCombinedKretaData(result);
+        }}
       />
 
     </div>

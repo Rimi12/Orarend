@@ -1,4 +1,4 @@
-import type { ParsedData, Teacher, Class, Subject, Allocation, AppHistoryState } from './types.ts';
+import type { ParsedData, Teacher, Class, Subject, Allocation, AppHistoryState, KretaCombinedImportResult, PlacedLesson } from './types.ts';
 import { NUMBER_OF_DAYS, NUMBER_OF_PERIODS, TEACHER_COLORS } from './constants.ts';
 
 export const normalizeClassName = (name: string): string => {
@@ -358,5 +358,255 @@ export const migrateHittanState = (state: AppHistoryState): AppHistoryState => {
     classes: finalClasses,
     allocations: updatedAllocations,
     placedLessons: updatedPlacedLessons
+  };
+};
+
+export const KRETA_DAY_MAP: Record<string, number> = {
+  'Hétfő': 0, 'hétfő': 0,
+  'Kedd': 1, 'kedd': 1,
+  'Szerda': 2, 'szerda': 2,
+  'Csütörtök': 3, 'csütörtök': 3,
+  'Péntek': 4, 'péntek': 4,
+};
+
+export const parseKretaCombinedExports = (
+  orarendRows: any[][],
+  ttfRows?: any[][]
+): KretaCombinedImportResult => {
+  // 1. If TTF rows provided, parse TTF allocations first
+  let ttfData: ParsedData | null = null;
+  if (ttfRows && ttfRows.length >= 3) {
+    try {
+      ttfData = parseTimetableFile(ttfRows);
+    } catch (err) {
+      console.warn("Nem sikerült feldolgozni a TTF fájlt, folytatás csak az Órarend exporttal:", err);
+    }
+  }
+
+  const teachers: Teacher[] = ttfData ? [...ttfData.teachers] : [];
+  const classes: Class[] = ttfData ? [...ttfData.classes] : [];
+  const subjects: Subject[] = ttfData ? [...ttfData.subjects] : [];
+  const allocations: Allocation[] = ttfData ? [...ttfData.allocations] : [];
+
+  const teacherMapByName = new Map<string, Teacher>(teachers.map(t => [t.name.trim().toLowerCase(), t]));
+  const classMapByName = new Map<string, Class>(classes.map(c => [c.name.trim().toLowerCase(), c]));
+  const subjectMapByName = new Map<string, Subject>(subjects.map(s => [s.name.trim().toLowerCase(), s]));
+
+  const makeAllocKey = (tName: string, cName: string, gName: string, sName: string) => {
+    const cleanT = tName.trim().toLowerCase();
+    const cleanC = normalizeClassName(cName).trim().toLowerCase();
+    const cleanG = (gName || '').trim().toLowerCase();
+    const cleanS = normalizeSubjectName(sName).trim().toLowerCase();
+    return `${cleanT}###${cleanC}###${cleanG}###${cleanS}`;
+  };
+
+  // Map existing TTF allocations by key
+  const allocMapByKey = new Map<string, Allocation>();
+  allocations.forEach(a => {
+    const tObj = teachers.find(t => t.id === a.teacherId);
+    const cObj = classes.find(c => c.id === a.classId);
+    const sObj = subjects.find(s => s.id === a.subjectId);
+    if (tObj && cObj && sObj) {
+      const key = makeAllocKey(tObj.name, a.originalClass || cObj.name, a.originalGroup || '', sObj.name);
+      allocMapByKey.set(key, a);
+    }
+  });
+
+  // 2. Parse Orarend rows
+  const header = orarendRows[0] || [];
+  const getColIndex = (keywords: string[], defaultIdx: number) => {
+    const idx = header.findIndex((h: any) => {
+      if (!h) return false;
+      const s = h.toString().toLowerCase();
+      return keywords.some(kw => s.includes(kw.toLowerCase()));
+    });
+    return idx !== -1 ? idx : defaultIdx;
+  };
+
+  const colDay = getColIndex(['Nap'], 1);
+  const colPeriod = getColIndex(['Óra'], 2);
+  const colClass = getColIndex(['Osztály'], 3);
+  const colGroup = getColIndex(['Csoport'], 4);
+  const colSubject = getColIndex(['Tantárgy'], 5);
+  const colTeacher = getColIndex(['Tanár'], 6);
+  const colRoom = getColIndex(['Helyiség'], 7);
+
+  const roomsSet = new Set<string>();
+  const placedInstancesByAllocId = new Map<string, { day: number; period: number; room: string }[]>();
+
+  for (let rowIndex = 1; rowIndex < orarendRows.length; rowIndex++) {
+    const row = orarendRows[rowIndex];
+    if (!row || row.length === 0) continue;
+
+    const dayStr = (row[colDay] || '').toString().trim();
+    const periodStr = (row[colPeriod] || '').toString().trim();
+    const rawClassStr = (row[colClass] || '').toString().trim();
+    const rawGroupStr = (row[colGroup] || '').toString().trim();
+    const rawSubjectStr = (row[colSubject] || '').toString().trim();
+    const rawTeacherStr = (row[colTeacher] || '').toString().trim();
+    const rawRoomStr = (row[colRoom] || '').toString().trim();
+
+    if (!dayStr || !periodStr || !rawTeacherStr || !rawSubjectStr) continue;
+
+    const day = KRETA_DAY_MAP[dayStr];
+    const periodNum = parseInt(periodStr, 10);
+    if (day === undefined || isNaN(periodNum) || periodNum < 1 || periodNum > NUMBER_OF_PERIODS) continue;
+    const period = periodNum - 1;
+
+    // Track room
+    if (rawRoomStr) {
+      roomsSet.add(rawRoomStr);
+    }
+
+    // Resolve Teacher
+    const cleanTeacherName = rawTeacherStr;
+    let teacher = teacherMapByName.get(cleanTeacherName.toLowerCase());
+    if (!teacher) {
+      teacher = {
+        id: `t${teachers.length + 1}`,
+        name: cleanTeacherName,
+        availability: Array(NUMBER_OF_DAYS).fill(0).map(() => Array(NUMBER_OF_PERIODS).fill(true)),
+        color: TEACHER_COLORS[teachers.length % TEACHER_COLORS.length],
+      };
+      teachers.push(teacher);
+      teacherMapByName.set(cleanTeacherName.toLowerCase(), teacher);
+    }
+
+    // Resolve Class
+    let resolvedClass = rawClassStr;
+    if (rawGroupStr && HITTAN_GROUP_CLASS_MAP[rawGroupStr]) {
+      resolvedClass = HITTAN_GROUP_CLASS_MAP[rawGroupStr];
+    }
+    if (!resolvedClass) {
+      if (rawGroupStr) {
+        const napkoziRegex = /napközis\s+csoportja/i;
+        if (napkoziRegex.test(rawGroupStr)) {
+          resolvedClass = rawGroupStr.replace(napkoziRegex, '').trim().replace(/\.$/, '').trim();
+        } else {
+          const oszthalyIndex = rawGroupStr.toLowerCase().indexOf('osztály');
+          if (oszthalyIndex !== -1) {
+            resolvedClass = rawGroupStr.substring(0, oszthalyIndex + 7).trim();
+          } else {
+            resolvedClass = rawGroupStr;
+          }
+        }
+      } else if (rawSubjectStr) {
+        if (rawSubjectStr.toLowerCase().includes('logopédia') || rawSubjectStr.toLowerCase().includes('fejlesztés') || rawSubjectStr.toLowerCase().includes('tsmt')) {
+          resolvedClass = 'Utazó gyógypedagógiai osztály';
+        } else if (rawSubjectStr.toLowerCase().includes('állampolgárság') || rawSubjectStr.toLowerCase().includes('erkölcsi nevelés') || rawSubjectStr.toLowerCase().includes('önismeret') || rawSubjectStr.toLowerCase().includes('családi életre')) {
+          resolvedClass = 'Kollégium';
+        } else {
+          resolvedClass = 'Egyéb';
+        }
+      }
+    }
+    const cleanClassName = normalizeClassName(resolvedClass || 'Egyéb');
+    let classObj = classMapByName.get(cleanClassName.toLowerCase());
+    if (!classObj) {
+      classObj = { id: `c${classes.length + 1}`, name: cleanClassName };
+      classes.push(classObj);
+      classMapByName.set(cleanClassName.toLowerCase(), classObj);
+    }
+
+    // Resolve Subject
+    const cleanSubjectName = normalizeSubjectName(rawSubjectStr);
+    let subjectObj = subjectMapByName.get(cleanSubjectName.toLowerCase());
+    if (!subjectObj) {
+      subjectObj = { id: `s${subjects.length + 1}`, name: cleanSubjectName };
+      subjects.push(subjectObj);
+      subjectMapByName.set(cleanSubjectName.toLowerCase(), subjectObj);
+    }
+
+    // Find or create Allocation
+    const allocKey = makeAllocKey(cleanTeacherName, rawClassStr || cleanClassName, rawGroupStr, cleanSubjectName);
+    let alloc = allocMapByKey.get(allocKey);
+    if (!alloc) {
+      // Also try matching without group if group is empty
+      const fallbackKey = makeAllocKey(cleanTeacherName, cleanClassName, '', cleanSubjectName);
+      alloc = allocMapByKey.get(fallbackKey);
+    }
+
+    if (!alloc) {
+      alloc = {
+        id: `a${allocations.length + 1}`,
+        teacherId: teacher.id,
+        classId: classObj.id,
+        subjectId: subjectObj.id,
+        weeklyHours: 0,
+        originalClass: rawClassStr || undefined,
+        originalGroup: rawGroupStr || undefined,
+      };
+      allocations.push(alloc);
+      allocMapByKey.set(allocKey, alloc);
+    }
+
+    if (!placedInstancesByAllocId.has(alloc.id)) {
+      placedInstancesByAllocId.set(alloc.id, []);
+    }
+    placedInstancesByAllocId.get(alloc.id)!.push({
+      day,
+      period,
+      room: rawRoomStr
+    });
+  }
+
+  // 3. Reconcile allocation weekly hours
+  allocations.forEach(alloc => {
+    const placedCount = placedInstancesByAllocId.get(alloc.id)?.length || 0;
+    if (alloc.weeklyHours === 0) {
+      alloc.weeklyHours = placedCount;
+    } else if (placedCount > alloc.weeklyHours) {
+      alloc.weeklyHours = placedCount;
+    }
+  });
+
+  // 4. Build PlacedLesson array and roomMap
+  const placedLessons: PlacedLesson[] = [];
+  const roomMap: Record<string, string> = {};
+
+  allocations.forEach(alloc => {
+    const instances = placedInstancesByAllocId.get(alloc.id) || [];
+    instances.forEach((inst, idx) => {
+      const lessonId = `${alloc.id}-${idx + 1}`;
+      placedLessons.push({
+        id: lessonId,
+        allocation: alloc,
+        day: inst.day,
+        period: inst.period
+      });
+      if (inst.room) {
+        roomMap[lessonId] = inst.room;
+      }
+    });
+  });
+
+  // 5. Migrate state to handle Hittan / groups consistently
+  const completeState: AppHistoryState = {
+    teachers,
+    classes,
+    subjects,
+    allocations,
+    placedLessons,
+    initialAllocations: [...allocations]
+  };
+
+  const migratedState = migrateHittanState(completeState);
+
+  const totalContractedHours = migratedState.allocations.reduce((s, a) => s + a.weeklyHours, 0);
+  const unplacedHoursCount = Math.max(0, totalContractedHours - migratedState.placedLessons.length);
+
+  return {
+    state: migratedState,
+    roomMap,
+    rooms: Array.from(roomsSet).sort((a, b) => a.localeCompare(b, 'hu-HU')),
+    stats: {
+      totalLessonsPlaced: migratedState.placedLessons.length,
+      teachersCount: migratedState.teachers.length,
+      classesCount: migratedState.classes.length,
+      subjectsCount: migratedState.subjects.length,
+      allocationsCount: migratedState.allocations.length,
+      ttfAllocationsCount: ttfData ? ttfData.allocations.length : undefined,
+      unplacedHoursCount
+    }
   };
 };
