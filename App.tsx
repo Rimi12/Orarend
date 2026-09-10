@@ -30,6 +30,7 @@ import { useAutoScheduler } from './hooks/useAutoScheduler.ts';
 import { AutoSchedulerModal } from './components/AutoSchedulerModal.tsx';
 import { RoomManagementModal } from './components/RoomManagementModal.tsx';
 import { KretaExportModal } from './components/KretaExportModal.tsx';
+import { SubstitutionsModal } from './components/SubstitutionsModal.tsx';
 
 const App: React.FC = () => {
   return (
@@ -53,6 +54,7 @@ const Main: React.FC = () => {
     reassignAllocationTeacher, updateAllocationHours, addCustomAllocation, removeCustomAllocation,
     isRoomModalOpen, setIsRoomModalOpen,
     loadCombinedKretaData,
+    substitutions, isSubstitutionsModalOpen, setIsSubstitutionsModalOpen,
     roomCode, syncStatus, lastSyncedAt, isSyncModalOpen, setIsSyncModalOpen, setRoomCode, pushToCloud, pullFromCloud
   } = useTimetable();
   
@@ -385,6 +387,9 @@ const Main: React.FC = () => {
               checkCollision={checkCollision}
               onExport={() => handleExport('class')}
               onClearTimetable={handleClearClassTimetable}
+              substitutions={substitutions}
+              currentEntityId={selectedClassId || undefined}
+              currentEntityName={selectedClass?.name}
             />
           )}
         </div>
@@ -416,6 +421,9 @@ const Main: React.FC = () => {
                 onExport={() => handleExport('teacher')}
                 onExportKreta={() => handleOpenTeacherKretaExport(selectedTeacher.id)}
                 onClearTimetable={handleClearTeacherTimetable}
+                substitutions={substitutions}
+                currentEntityId={selectedTeacherId || undefined}
+                currentEntityName={selectedTeacher?.name}
               />
             )}
           </div>
@@ -581,6 +589,11 @@ const Main: React.FC = () => {
         onImportConfirmed={(result) => {
           loadCombinedKretaData(result);
         }}
+      />
+
+      <SubstitutionsModal
+        isOpen={isSubstitutionsModalOpen}
+        onClose={() => setIsSubstitutionsModalOpen(false)}
       />
 
     </div>

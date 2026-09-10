@@ -20,12 +20,14 @@ export const KretaTimetableImportModal: React.FC<KretaTimetableImportModalProps>
 }) => {
   const [orarendFile, setOrarendFile] = useState<File | null>(null);
   const [ttfFile, setTtfFile] = useState<File | null>(null);
+  const [substitutionFile, setSubstitutionFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [parsedPreview, setParsedPreview] = useState<KretaCombinedImportResult | null>(null);
 
   const orarendInputRef = useRef<HTMLInputElement>(null);
   const ttfInputRef = useRef<HTMLInputElement>(null);
+  const substitutionInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
@@ -62,8 +64,18 @@ export const KretaTimetableImportModal: React.FC<KretaTimetableImportModalProps>
         ttfRows = XLSX.utils.sheet_to_json(sheetTtf, { header: 1 });
       }
 
-      // 3. Parse and Combine
-      const result = parseKretaCombinedExports(orarendRows, ttfRows);
+      // 3. Read Substitutions File if provided
+      let subRows: any[][] | undefined = undefined;
+      if (substitutionFile) {
+        const subBuffer = await substitutionFile.arrayBuffer();
+        const wbSub = XLSX.read(subBuffer, { type: 'array' });
+        const sheetNameS = wbSub.SheetNames.find(n => n.toLowerCase().includes('helyettes')) || wbSub.SheetNames[0];
+        const sheetSub = wbSub.Sheets[sheetNameS];
+        subRows = XLSX.utils.sheet_to_json(sheetSub, { header: 1 });
+      }
+
+      // 4. Parse and Combine
+      const result = parseKretaCombinedExports(orarendRows, ttfRows, subRows);
 
       if (result.stats.totalLessonsPlaced === 0) {
         throw new Error("Nem sikerült elhelyezett tanórákat beolvasni az Órarend exportból. Kérjük, ellenőrizze a fájl oszlopait (Nap, Óra, Tanár, Tantárgy).");
@@ -87,6 +99,7 @@ export const KretaTimetableImportModal: React.FC<KretaTimetableImportModalProps>
   const handleReset = () => {
     setOrarendFile(null);
     setTtfFile(null);
+    setSubstitutionFile(null);
     setParsedPreview(null);
     setError(null);
   };
@@ -267,6 +280,71 @@ export const KretaTimetableImportModal: React.FC<KretaTimetableImportModalProps>
                 )}
               </div>
 
+              {/* File 3: Helyettesítések Export */}
+              <div className="p-4 border-2 border-dashed border-amber-300 dark:border-amber-700/60 bg-amber-50/40 dark:bg-amber-950/20 rounded-2xl">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <span className="text-3xl">🔄</span>
+                    <div>
+                      <div className="font-bold text-sm text-gray-900 dark:text-white flex items-center gap-2">
+                        <span>3. Kréta Helyettesítések Exportja (.xlsx)</span>
+                        <span className="text-[10px] px-2 py-0.5 bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 font-bold rounded-full">
+                          Opcionális
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        A Kréta <code className="bg-white dark:bg-gray-800 px-1 py-0.5 rounded text-[11px]">helyettesiteseklistajaexport.xlsx</code> exportja a tartós helyettesítések idősávjainak zárolásához és órarendi megjelenítéséhez.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <input
+                      type="file"
+                      ref={substitutionInputRef}
+                      className="sr-only"
+                      accept=".xlsx, .xls"
+                      onChange={e => {
+                        const file = e.target.files?.[0];
+                        if (file) setSubstitutionFile(file);
+                        e.target.value = '';
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => substitutionInputRef.current?.click()}
+                      className={`px-4 py-2 text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5 ${
+                        substitutionFile
+                          ? 'bg-amber-600 text-white hover:bg-amber-700'
+                          : 'bg-white dark:bg-gray-800 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700 hover:bg-amber-50'
+                      }`}
+                    >
+                      <DocumentArrowUpIcon className="w-4 h-4" />
+                      <span>{substitutionFile ? 'Fájl cseréje' : 'Fájl kiválasztása'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {substitutionFile && (
+                  <div className="mt-3 pt-3 border-t border-amber-200 dark:border-amber-800/60 flex items-center justify-between text-xs text-amber-900 dark:text-amber-200 font-semibold">
+                    <div className="flex items-center gap-1.5">
+                      <span>✓ Kiválasztva:</span>
+                      <span className="font-mono bg-white dark:bg-gray-800 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-700">
+                        {substitutionFile.name}
+                      </span>
+                      <span className="text-gray-500 text-[11px]">({(substitutionFile.size / 1024).toFixed(1)} KB)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSubstitutionFile(null)}
+                      className="text-red-500 hover:text-red-700 text-xs font-bold"
+                    >
+                      Eltávolítás
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {/* Action Button */}
               <div className="pt-2">
                 <button
@@ -347,6 +425,18 @@ export const KretaTimetableImportModal: React.FC<KretaTimetableImportModalProps>
                   </div>
                   <div className="text-[10px] text-teal-600 dark:text-teal-400 mt-1">Tanórákhoz hozzárendelve</div>
                 </div>
+
+                {parsedPreview.substitutions && parsedPreview.substitutions.length > 0 && (
+                  <div className="p-3.5 bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 rounded-xl">
+                    <div className="text-[11px] font-bold text-orange-700 dark:text-orange-300 uppercase">Helyettesítések</div>
+                    <div className="text-2xl font-extrabold text-orange-900 dark:text-orange-100 mt-0.5">
+                      {parsedPreview.substitutions.length} sáv
+                    </div>
+                    <div className="text-[10px] text-orange-600 dark:text-orange-400 mt-1">
+                      {parsedPreview.substitutions.filter(s => s.isLongTerm).length} tartós helyettesítés
+                    </div>
+                  </div>
+                )}
 
                 <div className="p-3.5 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-xl">
                   <div className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 uppercase">Tantárgyfelosztás</div>

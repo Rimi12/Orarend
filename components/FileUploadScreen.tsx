@@ -40,13 +40,15 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [saveExists, setSaveExists] = useState(false);
 
-  // Dedicated Dual Kréta Import State
+  // Dedicated Kréta Import State
   const [orarendFile, setOrarendFile] = useState<File | null>(null);
   const [ttfFile, setTtfFile] = useState<File | null>(null);
+  const [subFile, setSubFile] = useState<File | null>(null);
 
-  const singleFileInputRef = useRef<HTMLInputElement>(null);
   const orarendInputRef = useRef<HTMLInputElement>(null);
   const ttfInputRef = useRef<HTMLInputElement>(null);
+  const subInputRef = useRef<HTMLInputElement>(null);
+  const singleFileInputRef = useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     const handleUpdate = () => {
@@ -57,7 +59,7 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({
     return () => window.removeEventListener('storage', handleUpdate);
   }, []);
 
-  // Handle Dual Kréta Files Submission
+  // Handle Dual/Triple Kréta Files Submission
   const handleDualKretaSubmit = async () => {
     if (!orarendFile) {
       setError("Kérjük, válassza ki a Kréta Órarend Export (.xlsx) fájlt!");
@@ -91,8 +93,18 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({
         ttfRows = XLSX.utils.sheet_to_json(sheetTtf, { header: 1 });
       }
 
-      // 3. Combined Parsing
-      const result = parseKretaCombinedExports(orarendRows, ttfRows);
+      // 3. Read Substitutions File if provided
+      let subRows: any[][] | undefined = undefined;
+      if (subFile) {
+        const subBuffer = await subFile.arrayBuffer();
+        const wbSub = XLSX.read(subBuffer, { type: 'array' });
+        const sheetNameS = wbSub.SheetNames.find(n => n.toLowerCase().includes('helyettes')) || wbSub.SheetNames[0];
+        const sheetSub = wbSub.Sheets[sheetNameS];
+        subRows = XLSX.utils.sheet_to_json(sheetSub, { header: 1 });
+      }
+
+      // 4. Combined Parsing
+      const result = parseKretaCombinedExports(orarendRows, ttfRows, subRows);
 
       if (result.stats.totalLessonsPlaced === 0) {
         throw new Error("Nem sikerült elhelyezett tanórákat beolvasni az Órarend fájlból. Ellenőrizze a fejlécet és a sorokat.");
@@ -244,7 +256,7 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({
             Válassza ki a Krétából letöltött órarendet (<code className="font-mono bg-white dark:bg-gray-800 px-1 py-0.5 rounded text-[11px]">OrarendExport.xlsx</code>) a tanórák és termek azonnali megjelenítéséhez. Opcionálisan adja meg a tantárgyfelosztást is az órakeretek ellenőrzéséhez!
           </p>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
             {/* File 1: Órarend */}
             <div className="p-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-2xs">
               <div className="flex items-center justify-between">
@@ -338,6 +350,53 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({
                 )}
               </div>
             </div>
+
+            {/* File 3: Helyettesítések */}
+            <div className="p-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-800 dark:text-gray-200 flex items-center gap-1.5">
+                  <span>🔄</span> 3. Helyettesítések (.xlsx)
+                </span>
+                <span className="text-[10px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded">
+                  Opcionális
+                </span>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <input
+                  type="file"
+                  ref={subInputRef}
+                  className="sr-only"
+                  accept=".xlsx, .xls"
+                  onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (f) setSubFile(f);
+                    e.target.value = '';
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => subInputRef.current?.click()}
+                  className={`flex-1 py-2 px-3 text-xs font-bold rounded-lg border transition-all truncate text-left ${
+                    subFile
+                      ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                      : 'bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-100'
+                  }`}
+                  title={subFile ? subFile.name : 'Válasszon Helyettesítés export fájlt (opcionális)'}
+                >
+                  {subFile ? `✓ ${subFile.name}` : '📁 Válasszon fájlt...'}
+                </button>
+                {subFile && (
+                  <button
+                    type="button"
+                    onClick={() => setSubFile(null)}
+                    className="text-xs text-red-500 hover:text-red-700 font-bold px-1"
+                    title="Eltávolítás"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           <button
@@ -354,7 +413,7 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({
             ) : (
               <>
                 <ArrowDownTrayIcon className="w-5 h-5" />
-                <span>Kréta Órarend és TTF Betöltése</span>
+                <span>Kréta Exportok Betöltése és Megjelenítése</span>
               </>
             )}
           </button>

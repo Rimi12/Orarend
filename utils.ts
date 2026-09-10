@@ -1,4 +1,4 @@
-import type { ParsedData, Teacher, Class, Subject, Allocation, AppHistoryState, KretaCombinedImportResult, PlacedLesson } from './types.ts';
+import type { ParsedData, Teacher, Class, Subject, Allocation, AppHistoryState, KretaCombinedImportResult, PlacedLesson, Substitution } from './types.ts';
 import { NUMBER_OF_DAYS, NUMBER_OF_PERIODS, TEACHER_COLORS } from './constants.ts';
 
 export const normalizeClassName = (name: string): string => {
@@ -361,6 +361,242 @@ export const migrateHittanState = (state: AppHistoryState): AppHistoryState => {
   };
 };
 
+export const parseExcelDateToDayAndString = (val: any): { dateStr: string; dayIndex: number } | null => {
+  if (val === null || val === undefined || val === '') return null;
+
+  // Numeric Excel serial (e.g. 46351)
+  if (typeof val === 'number' || (!isNaN(Number(val)) && !String(val).includes('-') && !String(val).includes('.'))) {
+    const num = Number(val);
+    if (num > 20000 && num < 80000) {
+      const utc_days = Math.floor(num - 25569);
+      const date = new Date(utc_days * 86400 * 1000);
+      const jsDay = date.getUTCDay();
+      const dayIndex = jsDay === 0 ? 6 : jsDay - 1;
+      return { dateStr: date.toISOString().split('T')[0], dayIndex };
+    }
+  }
+
+  // String date format: '2026-09-02', '2026.09.02.', '2026. 09. 02.'
+  const str = String(val).trim();
+  const clean = str.replace(/\./g, '-').replace(/\s+/g, '').replace(/-+$/, '');
+  const date = new Date(clean);
+  if (!isNaN(date.getTime())) {
+    const jsDay = date.getDay();
+    const dayIndex = jsDay === 0 ? 6 : jsDay - 1;
+    return { dateStr: date.toISOString().split('T')[0], dayIndex };
+  }
+
+  return null;
+};
+
+export const parseKretaSubstitutionExport = (
+  rows: any[],
+  teachers: Teacher[] = [],
+  classes: Class[] = [],
+  subjects: Subject[] = []
+): Substitution[] => {
+  if (!rows || rows.length < 2) return [];
+
+  const teacherMap = new Map<string, Teacher>();
+  teachers.forEach(t => {
+    teacherMap.set(t.name.trim().toLowerCase(), t);
+    teacherMap.set(t.id, t);
+  });
+
+  const classMap = new Map<string, Class>();
+  classes.forEach(c => {
+    classMap.set(c.name.trim().toLowerCase(), c);
+    classMap.set(normalizeClassName(c.name).trim().toLowerCase(), c);
+  });
+
+  const subjectMap = new Map<string, Subject>();
+  subjects.forEach(s => {
+    subjectMap.set(s.name.trim().toLowerCase(), s);
+    subjectMap.set(normalizeSubjectName(s.name).trim().toLowerCase(), s);
+  });
+
+  const is2DArray = Array.isArray(rows[0]);
+  const headerMap: Record<string, number> = {};
+
+  if (is2DArray) {
+    const headerRow = rows[0] as any[];
+    headerRow.forEach((h, idx) => {
+      if (!h) return;
+      const s = String(h).toLowerCase().trim();
+      if (s.includes('dátum') || s.includes('datum')) headerMap['date'] = idx;
+      if (s.includes('óra') || s.includes('ora')) headerMap['period'] = idx;
+      if (s.includes('helyettesített')) headerMap['origTeacher'] = idx;
+      if (s.includes('helyettesítő')) headerMap['subTeacher'] = idx;
+      if (s.includes('típ') || s.includes('tip')) headerMap['subType'] = idx;
+      if (s.includes('osztály') || s.includes('csoport')) headerMap['class'] = idx;
+      if (s.includes('tantárgy') || s.includes('tantargy')) headerMap['subject'] = idx;
+      if (s.includes('megjegyzés') || s.includes('megjegyzes')) headerMap['comment'] = idx;
+      if (s.includes('ok')) headerMap['reason'] = idx;
+    });
+  }
+
+  const aggregatedMap = new Map<string, {
+    subTeacherName: string;
+    origTeacherName: string;
+    dayIndex: number;
+    period: number;
+    className: string;
+    subjectName: string;
+    subType: string;
+    comment: string;
+    reason: string;
+    dates: string[];
+  }>();
+
+  const startIdx = is2DArray ? 1 : 0;
+  for (let i = startIdx; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row) continue;
+
+    let rawDate: any = '';
+    let rawPeriod: any = '';
+    let origTeacher: string = '';
+    let subTeacher: string = '';
+    let subType: string = '';
+    let className: string = '';
+    let subjectName: string = '';
+    let comment: string = '';
+    let reason: string = '';
+
+    if (is2DArray) {
+      rawDate = row[headerMap['date'] ?? 0];
+      rawPeriod = row[headerMap['period'] ?? 1];
+      origTeacher = String(row[headerMap['origTeacher'] ?? 2] || '').trim();
+      subType = String(row[headerMap['subType'] ?? 5] || 'Helyettesítés').trim();
+      subTeacher = String(row[headerMap['subTeacher'] ?? 6] || '').trim();
+      className = String(row[headerMap['class'] ?? 7] || '').trim();
+      subjectName = String(row[headerMap['subject'] ?? 8] || '').trim();
+      comment = String(row[headerMap['comment'] ?? 4] || '').trim();
+      reason = String(row[headerMap['reason'] ?? 3] || '').trim();
+    } else {
+      rawDate = row['Helyettesítés dátuma'] ?? row['Dátum'] ?? row['datum'];
+      rawPeriod = row['Óra'] ?? row['ora'];
+      origTeacher = String(row['Helyettesített pedagógus'] ?? row['Helyettesitett'] ?? '').trim();
+      subTeacher = String(row['Helyettesítő pedagógus'] ?? row['Helyettesito'] ?? '').trim();
+      subType = String(row['Helyettesítés típusa'] ?? row['Tipus'] ?? 'Helyettesítés').trim();
+      className = String(row['Osztály/csoport'] ?? row['Osztaly'] ?? '').trim();
+      subjectName = String(row['Tantárgy'] ?? row['Tantargy'] ?? '').trim();
+      comment = String(row['Megjegyzés'] ?? '').trim();
+      reason = String(row['Helyettesítés oka'] ?? '').trim();
+    }
+
+    if (!subTeacher) continue;
+    const dateInfo = parseExcelDateToDayAndString(rawDate);
+    if (!dateInfo || dateInfo.dayIndex < 0 || dateInfo.dayIndex >= NUMBER_OF_DAYS) continue;
+
+    const periodNum = parseInt(String(rawPeriod || '1').trim(), 10);
+    if (isNaN(periodNum) || periodNum < 1 || periodNum > NUMBER_OF_PERIODS) continue;
+    const period = periodNum - 1;
+
+    const normalizedCls = normalizeClassName(className) || className;
+
+    const aggKey = [
+      subTeacher.toLowerCase(),
+      origTeacher.toLowerCase(),
+      dateInfo.dayIndex,
+      period,
+      normalizedCls.toLowerCase(),
+      subjectName.toLowerCase(),
+      subType.toLowerCase()
+    ].join('__');
+
+    if (!aggregatedMap.has(aggKey)) {
+      aggregatedMap.set(aggKey, {
+        subTeacherName: subTeacher,
+        origTeacherName: origTeacher,
+        dayIndex: dateInfo.dayIndex,
+        period,
+        className: normalizedCls,
+        subjectName,
+        subType,
+        comment,
+        reason,
+        dates: []
+      });
+    }
+
+    aggregatedMap.get(aggKey)!.dates.push(dateInfo.dateStr);
+  }
+
+  const result: Substitution[] = [];
+  let index = 1;
+
+  aggregatedMap.forEach((item) => {
+    item.dates.sort();
+    const occurrences = item.dates.length;
+    const isLongTerm = occurrences >= 2;
+    const firstDate = item.dates[0];
+    const lastDate = item.dates[item.dates.length - 1];
+    const dateRange = firstDate === lastDate ? firstDate : `${firstDate} – ${lastDate}`;
+
+    const subTeacherObj = teacherMap.get(item.subTeacherName.toLowerCase());
+    const origTeacherObj = teacherMap.get(item.origTeacherName.toLowerCase());
+    const classObj = classMap.get(item.className.toLowerCase());
+    const subjectObj = subjectMap.get(item.subjectName.toLowerCase()) || subjectMap.get(normalizeSubjectName(item.subjectName).toLowerCase());
+
+    result.push({
+      id: `sub-${index++}`,
+      day: item.dayIndex,
+      period: item.period,
+      substituteTeacherName: item.subTeacherName,
+      originalTeacherName: item.origTeacherName,
+      substituteTeacherId: subTeacherObj?.id,
+      originalTeacherId: origTeacherObj?.id,
+      className: item.className,
+      classId: classObj?.id,
+      subjectName: item.subjectName,
+      subjectId: subjectObj?.id,
+      substitutionType: item.subType,
+      comment: item.comment || undefined,
+      reason: item.reason || undefined,
+      occurrences,
+      dates: item.dates,
+      dateRange,
+      isLongTerm
+    });
+  });
+
+  return result.sort((a, b) => {
+    if (a.day !== b.day) return a.day - b.day;
+    if (a.period !== b.period) return a.period - b.period;
+    return a.substituteTeacherName.localeCompare(b.substituteTeacherName, 'hu-HU');
+  });
+};
+
+export const applySubstitutionsToAvailability = (
+  teachers: Teacher[],
+  substitutions: Substitution[],
+  onlyLongTerm: boolean = true
+): Teacher[] => {
+  return teachers.map(teacher => {
+    const cleanName = teacher.name.trim().toLowerCase();
+    const matchingSubs = substitutions.filter(sub => {
+      if (onlyLongTerm && !sub.isLongTerm) return false;
+      if (sub.substituteTeacherId && sub.substituteTeacherId === teacher.id) return true;
+      return sub.substituteTeacherName.trim().toLowerCase() === cleanName;
+    });
+
+    if (matchingSubs.length === 0) return teacher;
+
+    const newAvail = teacher.availability.map(dayArr => [...dayArr]);
+    matchingSubs.forEach(sub => {
+      if (sub.day >= 0 && sub.day < NUMBER_OF_DAYS && sub.period >= 0 && sub.period < NUMBER_OF_PERIODS) {
+        newAvail[sub.day][sub.period] = false;
+      }
+    });
+
+    return {
+      ...teacher,
+      availability: newAvail
+    };
+  });
+};
+
 export const KRETA_DAY_MAP: Record<string, number> = {
   'Hétfő': 0, 'hétfő': 0,
   'Kedd': 1, 'kedd': 1,
@@ -371,7 +607,8 @@ export const KRETA_DAY_MAP: Record<string, number> = {
 
 export const parseKretaCombinedExports = (
   orarendRows: any[][],
-  ttfRows?: any[][]
+  ttfRows?: any[][],
+  substitutionRows?: any[][]
 ): KretaCombinedImportResult => {
   // 1. If TTF rows provided, parse TTF allocations first
   let ttfData: ParsedData | null = null;
@@ -478,72 +715,57 @@ export const parseKretaCombinedExports = (
       resolvedClass = HITTAN_GROUP_CLASS_MAP[rawGroupStr];
     }
     if (!resolvedClass) {
-      if (rawGroupStr) {
-        const napkoziRegex = /napközis\s+csoportja/i;
-        if (napkoziRegex.test(rawGroupStr)) {
-          resolvedClass = rawGroupStr.replace(napkoziRegex, '').trim().replace(/\.$/, '').trim();
-        } else {
-          const oszthalyIndex = rawGroupStr.toLowerCase().indexOf('osztály');
-          if (oszthalyIndex !== -1) {
-            resolvedClass = rawGroupStr.substring(0, oszthalyIndex + 7).trim();
-          } else {
-            resolvedClass = rawGroupStr;
-          }
-        }
-      } else if (rawSubjectStr) {
-        if (rawSubjectStr.toLowerCase().includes('logopédia') || rawSubjectStr.toLowerCase().includes('fejlesztés') || rawSubjectStr.toLowerCase().includes('tsmt')) {
-          resolvedClass = 'Utazó gyógypedagógiai osztály';
-        } else if (rawSubjectStr.toLowerCase().includes('állampolgárság') || rawSubjectStr.toLowerCase().includes('erkölcsi nevelés') || rawSubjectStr.toLowerCase().includes('önismeret') || rawSubjectStr.toLowerCase().includes('családi életre')) {
-          resolvedClass = 'Kollégium';
-        } else {
-          resolvedClass = 'Egyéb';
-        }
+      const matchGroup = rawGroupStr.match(/^(?:([1-9]|1[0-2])(?:\.|\/)[A-Za-z0-9\/\s]+?)(?=\s*(?:csoport|napközi|tanulószoba|$))/i);
+      if (matchGroup) {
+        resolvedClass = matchGroup[0].trim();
+      } else {
+        resolvedClass = rawGroupStr || 'Ismeretlen Osztály';
       }
     }
-    const cleanClassName = normalizeClassName(resolvedClass || 'Egyéb');
+    const cleanClassName = normalizeClassName(resolvedClass);
     let classObj = classMapByName.get(cleanClassName.toLowerCase());
     if (!classObj) {
-      classObj = { id: `c${classes.length + 1}`, name: cleanClassName };
+      classObj = {
+        id: `c${classes.length + 1}`,
+        name: cleanClassName
+      };
       classes.push(classObj);
       classMapByName.set(cleanClassName.toLowerCase(), classObj);
     }
 
     // Resolve Subject
     const cleanSubjectName = normalizeSubjectName(rawSubjectStr);
-    let subjectObj = subjectMapByName.get(cleanSubjectName.toLowerCase());
-    if (!subjectObj) {
-      subjectObj = { id: `s${subjects.length + 1}`, name: cleanSubjectName };
-      subjects.push(subjectObj);
-      subjectMapByName.set(cleanSubjectName.toLowerCase(), subjectObj);
+    let subject = subjectMapByName.get(cleanSubjectName.toLowerCase());
+    if (!subject) {
+      subject = {
+        id: `s${subjects.length + 1}`,
+        name: cleanSubjectName
+      };
+      subjects.push(subject);
+      subjectMapByName.set(cleanSubjectName.toLowerCase(), subject);
     }
 
     // Find or create Allocation
-    const allocKey = makeAllocKey(cleanTeacherName, rawClassStr || cleanClassName, rawGroupStr, cleanSubjectName);
-    let alloc = allocMapByKey.get(allocKey);
-    if (!alloc) {
-      // Also try matching without group if group is empty
-      const fallbackKey = makeAllocKey(cleanTeacherName, cleanClassName, '', cleanSubjectName);
-      alloc = allocMapByKey.get(fallbackKey);
-    }
-
-    if (!alloc) {
-      alloc = {
-        id: `a${allocations.length + 1}`,
+    const allocKey = makeAllocKey(teacher.name, cleanClassName, rawGroupStr, cleanSubjectName);
+    let allocation = allocMapByKey.get(allocKey);
+    if (!allocation) {
+      allocation = {
+        id: `alloc-gen-${allocations.length + 1}`,
         teacherId: teacher.id,
         classId: classObj.id,
-        subjectId: subjectObj.id,
+        subjectId: subject.id,
         weeklyHours: 0,
-        originalClass: rawClassStr || undefined,
-        originalGroup: rawGroupStr || undefined,
+        originalClass: rawClassStr,
+        originalGroup: rawGroupStr
       };
-      allocations.push(alloc);
-      allocMapByKey.set(allocKey, alloc);
+      allocations.push(allocation);
+      allocMapByKey.set(allocKey, allocation);
     }
 
-    if (!placedInstancesByAllocId.has(alloc.id)) {
-      placedInstancesByAllocId.set(alloc.id, []);
+    if (!placedInstancesByAllocId.has(allocation.id)) {
+      placedInstancesByAllocId.set(allocation.id, []);
     }
-    placedInstancesByAllocId.get(alloc.id)!.push({
+    placedInstancesByAllocId.get(allocation.id)!.push({
       day,
       period,
       room: rawRoomStr
@@ -592,6 +814,27 @@ export const parseKretaCombinedExports = (
 
   const migratedState = migrateHittanState(completeState);
 
+  // 6. If substitutions are provided, parse and apply them to teacher availability
+  let substitutions: Substitution[] | undefined = undefined;
+  if (substitutionRows && substitutionRows.length >= 2) {
+    try {
+      substitutions = parseKretaSubstitutionExport(
+        substitutionRows,
+        migratedState.teachers,
+        migratedState.classes,
+        migratedState.subjects
+      );
+      migratedState.teachers = applySubstitutionsToAvailability(
+        migratedState.teachers,
+        substitutions,
+        true // Tartós helyettesítésnél lezárja a rendelkezésre állást
+      );
+      migratedState.substitutions = substitutions;
+    } catch (err) {
+      console.warn("Nem sikerült feldolgozni a helyettesítési fájlt:", err);
+    }
+  }
+
   const totalContractedHours = migratedState.allocations.reduce((s, a) => s + a.weeklyHours, 0);
   const unplacedHoursCount = Math.max(0, totalContractedHours - migratedState.placedLessons.length);
 
@@ -599,6 +842,7 @@ export const parseKretaCombinedExports = (
     state: migratedState,
     roomMap,
     rooms: Array.from(roomsSet).sort((a, b) => a.localeCompare(b, 'hu-HU')),
+    substitutions,
     stats: {
       totalLessonsPlaced: migratedState.placedLessons.length,
       teachersCount: migratedState.teachers.length,
@@ -606,7 +850,8 @@ export const parseKretaCombinedExports = (
       subjectsCount: migratedState.subjects.length,
       allocationsCount: migratedState.allocations.length,
       ttfAllocationsCount: ttfData ? ttfData.allocations.length : undefined,
-      unplacedHoursCount
+      unplacedHoursCount,
+      substitutionsCount: substitutions ? substitutions.length : undefined
     }
   };
 };

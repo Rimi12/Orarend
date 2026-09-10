@@ -57,6 +57,27 @@ export type Collision = {
   availability: boolean;
 };
 
+export interface Substitution {
+  id: string;
+  day: number; // 0..4 (Hétfő..Péntek)
+  period: number; // 0..11
+  substituteTeacherName: string;
+  originalTeacherName: string;
+  substituteTeacherId?: string;
+  originalTeacherId?: string;
+  className: string;
+  classId?: string;
+  subjectName: string;
+  subjectId?: string;
+  substitutionType: string; // 'Helyettesítés' | 'Óraösszevonás' | 'Összevont felügyelet'
+  comment?: string;
+  reason?: string;
+  occurrences: number;
+  dates: string[];
+  dateRange: string;
+  isLongTerm: boolean; // >= 2 occurrences or multiple weeks
+}
+
 // Represents the structure of the state that is tracked in history
 export interface AppHistoryState {
   teachers: Teacher[];
@@ -65,6 +86,7 @@ export interface AppHistoryState {
   allocations: Allocation[];
   placedLessons: PlacedLesson[];
   initialAllocations?: Allocation[];
+  substitutions?: Substitution[];
 }
 
 // Represents the structure of the saved state in localStorage
@@ -75,6 +97,7 @@ export interface SavedState extends AppHistoryState {
   driveFileId: string | null;
   assistantSchedule?: AssistantSchedule;
   initialAllocations?: Allocation[];
+  substitutions?: Substitution[];
 }
 
 export interface ParsedData {
@@ -88,6 +111,7 @@ export interface KretaCombinedImportResult {
   state: AppHistoryState;
   roomMap: Record<string, string>;
   rooms: string[];
+  substitutions?: Substitution[];
   stats: {
     totalLessonsPlaced: number;
     teachersCount: number;
@@ -96,6 +120,7 @@ export interface KretaCombinedImportResult {
     allocationsCount: number;
     ttfAllocationsCount?: number;
     unplacedHoursCount: number;
+    substitutionsCount?: number;
   };
 }
 

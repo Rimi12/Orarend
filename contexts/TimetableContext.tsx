@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
-import type { Teacher, Class, Subject, Allocation, PlacedLesson, UnplacedLesson, TimetableCellData, Collision, SavedState, ParsedData, AllocationUpdateSummary, AppHistoryState, KretaCombinedImportResult } from '../types.ts';
+import type { Teacher, Class, Subject, Allocation, PlacedLesson, UnplacedLesson, TimetableCellData, Collision, SavedState, ParsedData, AllocationUpdateSummary, AppHistoryState, KretaCombinedImportResult, Substitution } from '../types.ts';
 import { NUMBER_OF_DAYS, NUMBER_OF_PERIODS, TEACHER_COLORS } from '../constants.ts';
-import { migrateHittanState } from '../utils.ts';
+import { migrateHittanState, applySubstitutionsToAvailability, normalizeClassName } from '../utils.ts';
 import { getActiveRoomCode, setActiveRoomCode, subscribeToCloudDoc, saveToCloudDoc, CLIENT_ID } from '../services/firebaseSync.ts';
 import { KRETA_HELYISEG_DEFAULT } from '../kretaTemplateData.ts';
 
@@ -58,6 +58,11 @@ interface TimetableContextType {
   isRoomModalOpen: boolean;
   setIsRoomModalOpen: (open: boolean) => void;
   loadCombinedKretaData: (result: KretaCombinedImportResult) => void;
+  substitutions: Substitution[];
+  setSubstitutions: React.Dispatch<React.SetStateAction<Substitution[]>>;
+  loadSubstitutionsOnly: (subs: Substitution[]) => void;
+  isSubstitutionsModalOpen: boolean;
+  setIsSubstitutionsModalOpen: (open: boolean) => void;
 
   // Cloud Sync
   roomCode: string;
@@ -145,6 +150,22 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             return combined;
         });
     }, []);
+
+    // ── Substitutions State ─────────────────────────────────────────────────────
+    const [substitutions, setSubstitutions] = useState<Substitution[]>(() => {
+        try {
+            const saved = localStorage.getItem('timetable_substitutions_v1');
+            if (saved) return JSON.parse(saved);
+        } catch {}
+        return [];
+    });
+    const [isSubstitutionsModalOpen, setIsSubstitutionsModalOpen] = useState<boolean>(false);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem('timetable_substitutions_v1', JSON.stringify(substitutions));
+        } catch {}
+    }, [substitutions]);
 
     // ── Cloud Sync State ────────────────────────────────────────────────────────
     const [roomCode, setRoomCodeState] = useState<string>(getActiveRoomCode());
@@ -309,6 +330,14 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             });
         }
 
+        if (result.substitutions || initialState.substitutions) {
+            const subs = result.substitutions || initialState.substitutions || [];
+            setSubstitutions(subs);
+            try {
+                localStorage.setItem('timetable_substitutions_v1', JSON.stringify(subs));
+            } catch {}
+        }
+
         try {
             const stateToSave: SavedState = {
                 ...initialState,
@@ -323,6 +352,35 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             saveToCloudDoc(`rooms/${roomCode}/timetable/main`, initialState);
         }
     }, [roomCode]);
+
+    const loadSubstitutionsOnly = useCallback((subs: Substitution[]) => {
+        setSubstitutions(subs);
+        try {
+            localStorage.setItem('timetable_substitutions_v1', JSON.stringify(subs));
+        } catch {}
+
+        if (currentState) {
+            const updatedTeachers = applySubstitutionsToAvailability(currentState.teachers, subs, true);
+            const nextState: AppHistoryState = {
+                ...currentState,
+                teachers: updatedTeachers,
+                substitutions: subs
+            };
+            setHistory(prev => [...prev.slice(0, historyIndex + 1), nextState]);
+            setHistoryIndex(prev => prev + 1);
+
+            try {
+                const stateToSave: SavedState = {
+                    ...nextState,
+                    version: '2.0.0',
+                    selectedTeacherId,
+                    selectedClassId,
+                    driveFileId
+                };
+                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stateToSave));
+            } catch {}
+        }
+    }, [currentState, historyIndex, selectedTeacherId, selectedClassId, driveFileId]);
 
     const findClass = useCallback((id: string) => currentState?.classes.find(c => c.id === id), [currentState]);
     const findSubject = useCallback((id: string) => currentState?.subjects.find(s => s.id === id), [currentState]);
@@ -489,7 +547,15 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 allocations: savedState.allocations || [],
                 placedLessons: safePlacedLessons,
                 initialAllocations: savedState.initialAllocations || savedState.allocations || [],
+                substitutions: savedState.substitutions || [],
             };
+
+            if (savedState.substitutions) {
+                setSubstitutions(savedState.substitutions);
+                try {
+                    localStorage.setItem('timetable_substitutions_v1', JSON.stringify(savedState.substitutions));
+                } catch {}
+            }
 
             const migratedState = migrateHittanState(completeState);
             setHistory([migratedState]);
@@ -879,6 +945,12 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setIsRoomModalOpen,
         loadCombinedKretaData,
 
+        substitutions,
+        setSubstitutions,
+        loadSubstitutionsOnly,
+        isSubstitutionsModalOpen,
+        setIsSubstitutionsModalOpen,
+
         roomCode,
         syncStatus,
         lastSyncedAt,
@@ -898,6 +970,7 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setSelectedTeacherId, setSelectedClassId, setDriveFileId,
         reassignAllocationTeacher, updateAllocationHours, addCustomAllocation, removeCustomAllocation,
         rooms, setRooms, roomAssignments, setRoomAssignments, addRoom, updateRoom, deleteRoom, resetRoomsToDefault, importRooms, isRoomModalOpen, loadCombinedKretaData,
+        substitutions, loadSubstitutionsOnly, isSubstitutionsModalOpen,
         roomCode, syncStatus, lastSyncedAt, isSyncModalOpen, setRoomCode, pushToCloud, pullFromCloud
     ]);
 

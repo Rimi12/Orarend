@@ -68,7 +68,7 @@ export const Header: React.FC<HeaderProps> = ({
   onStartAutoSchedule, onClearClassTimetable, onClearTeacherTimetable,
   onOpenCloudSync, syncStatus = 'offline', roomCode = 'zoldmezo-2025'
 }) => {
-  const { rooms, setIsRoomModalOpen } = useTimetable();
+  const { rooms, setIsRoomModalOpen, substitutions, setIsSubstitutionsModalOpen } = useTimetable();
   const [isKretaMenuOpen, setIsKretaMenuOpen] = React.useState(false);
   const kretaMenuRef = React.useRef<HTMLDivElement>(null);
 
@@ -199,6 +199,19 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="text-base">🏫</span>
             <span className="hidden lg:inline">Termek ({rooms.length})</span>
           </button>
+          <button
+            onClick={() => setIsSubstitutionsModalOpen(true)}
+            className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 transition-colors flex items-center gap-2 text-sm relative"
+            title="Kréta helyettesítések és tartós helyettesítések megtekintése, betöltése"
+          >
+            <span className="text-base">🔄</span>
+            <span className="hidden lg:inline">Helyettesítések</span>
+            {substitutions && substitutions.length > 0 && (
+              <span className="bg-amber-900/80 text-amber-100 text-xs px-1.5 py-0.5 rounded-full font-bold">
+                {substitutions.length}
+              </span>
+            )}
+          </button>
 
           {/* Kréta Export dropdown */}
           <div className="relative" ref={kretaMenuRef}>
@@ -312,6 +325,28 @@ export const Header: React.FC<HeaderProps> = ({
                     </div>
                   </button>
                 )}
+
+                {/* 6. Kréta Substitutions Modal */}
+                <button
+                  onClick={() => {
+                    setIsKretaMenuOpen(false);
+                    setIsSubstitutionsModalOpen(true);
+                  }}
+                  className="w-full text-left px-4 py-2.5 bg-amber-50/50 hover:bg-amber-100/70 dark:bg-amber-950/30 dark:hover:bg-amber-900/50 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2.5 transition-colors border-t border-amber-100 dark:border-amber-800/50"
+                >
+                  <span className="text-base mt-0.5">🔄</span>
+                  <div>
+                    <div className="font-bold text-amber-950 dark:text-amber-100 flex items-center gap-2">
+                      <span>Kréta Helyettesítések Listája</span>
+                      {substitutions && substitutions.length > 0 && (
+                        <span className="bg-amber-200 text-amber-800 text-xs px-1.5 py-0.2 rounded-full font-semibold">
+                          {substitutions.length} sáv
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-amber-600 dark:text-amber-400">Tartós helyettesítések és zárolt sávok áttekintése</div>
+                  </div>
+                </button>
               </div>
             )}
           </div>

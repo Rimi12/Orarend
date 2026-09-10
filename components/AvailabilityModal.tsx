@@ -14,7 +14,7 @@ interface AvailabilityModalProps {
 }
 
 export const AvailabilityModal: React.FC<AvailabilityModalProps> = ({ isOpen, teacher, onClose, onAvailabilityChange, onTravelingChange }) => {
-  const { sortedTeachers, bulkUpdateTeachersAvailability } = useTimetable();
+  const { sortedTeachers, bulkUpdateTeachersAvailability, substitutions } = useTimetable();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen || !teacher) return null;
@@ -132,16 +132,32 @@ export const AvailabilityModal: React.FC<AvailabilityModalProps> = ({ isOpen, te
                   <td className="p-3 font-medium text-gray-600 dark:text-gray-400">{period}</td>
                   {DAYS_OF_WEEK.map((_, dayIndex) => {
                     const isAvailable = teacher.availability[dayIndex]?.[periodIndex] ?? true;
+                    const teacherSub = (substitutions || []).find(s =>
+                      (s.substituteTeacherId === teacher.id || s.substituteTeacherName.trim().toLowerCase() === teacher.name.trim().toLowerCase()) &&
+                      s.day === dayIndex &&
+                      s.period === periodIndex
+                    );
+
                     return (
-                      <td key={`${dayIndex}-${periodIndex}`} className="p-3">
-                        <label className="flex justify-center items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            className="h-6 w-6 rounded-md text-red-600 bg-gray-200 border-gray-300 focus:ring-red-500 dark:bg-gray-600 dark:border-gray-500 dark:focus:ring-red-600"
-                            checked={!isAvailable}
-                            onChange={(e) => onAvailabilityChange(teacher.id, dayIndex, periodIndex, !e.target.checked)}
-                          />
-                        </label>
+                      <td key={`${dayIndex}-${periodIndex}`} className="p-2 relative">
+                        <div className="flex flex-col items-center justify-center gap-1">
+                          <label className="flex justify-center items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              className="h-6 w-6 rounded-md text-red-600 bg-gray-200 border-gray-300 focus:ring-red-500 dark:bg-gray-600 dark:border-gray-500 dark:focus:ring-red-600"
+                              checked={!isAvailable}
+                              onChange={(e) => onAvailabilityChange(teacher.id, dayIndex, periodIndex, !e.target.checked)}
+                            />
+                          </label>
+                          {teacherSub && (
+                            <span 
+                              className="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 text-[10px] font-semibold rounded border border-amber-300 dark:border-amber-700 truncate max-w-[90px] cursor-help"
+                              title={`Helyettesítés miatt foglalt: ${teacherSub.className} - ${teacherSub.subjectName} (${teacherSub.originalTeacherName} helyett, ${teacherSub.occurrences}x)`}
+                            >
+                              🔄 {teacherSub.className}
+                            </span>
+                          )}
+                        </div>
                       </td>
                     );
                   })}
