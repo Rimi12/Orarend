@@ -411,11 +411,18 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             p.allocation?.teacherId === allocation.teacherId
         );
         
-        const isClassBusy = currentState.placedLessons.some(p =>
-            p.day === cell.day &&
-            p.period === cell.period &&
-            p.allocation?.classId === allocation.classId
-        );
+        const isClassBusy = currentState.placedLessons.some(p => {
+            if (p.day !== cell.day || p.period !== cell.period || p.allocation?.classId !== allocation.classId) {
+                return false;
+            }
+            // If both lessons specify different subgroups (e.g. "A csoport" and "B csoport"), they can run in parallel!
+            const group1 = allocation.originalGroup?.trim().toLowerCase();
+            const group2 = p.allocation?.originalGroup?.trim().toLowerCase();
+            if (group1 && group2 && group1 !== group2) {
+                return false; // Valid parallel lesson for different subgroups
+            }
+            return true;
+        });
 
         return {
             teacher: isTeacherBusy,

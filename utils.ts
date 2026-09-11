@@ -66,7 +66,7 @@ export const normalizeSubjectName = (name: string): string => {
   if (!name) return '';
   let clean = name.trim().replace(/\s+/g, ' ');
 
-  if (clean === 'Napközi') return 'Napközis tevékenység';
+  if (clean === 'Napközis tevékenység') return 'Napközi';
   if (clean === 'Mozgás nevelés') return 'Mozgásnevelés';
   if (clean === 'Habilitáci-rehabiltáció') return 'Habilitáció-rehabilitáció';
   if (clean === 'Ének - zene') return 'Ének-zene';
@@ -78,47 +78,242 @@ export const normalizeSubjectName = (name: string): string => {
 };
 
 export const HITTAN_GROUP_CLASS_MAP: Record<string, string> = {
-  // Hittan (Fentős Judit)
-  'Etika/Hit- és erkölcstan csoport 12': '6/A. osztály',
-  'Etika/Hit- és erkölcstan csoport 13': '7. osztály',
-  'Etika/Hit- és erkölcstan csoport 14': '8. osztály',
-  'Etika/Hit- és erkölcstan csoport 15': '1. osztály',
-  'Etika/Hit- és erkölcstan csoport 16': '2/B. osztály',
-  'Etika/Hit- és erkölcstan csoport 17': '2/A. osztály',
-  'Etika/Hit- és erkölcstan csoport 19': '3. osztály',
-  'Etika/Hit- és erkölcstan csoport 20': '5. osztály',
-
-  'Hit- és Erkölcstan csoport 12': '6/A. osztály',
-  'Hit- és Erkölcstan csoport 13': '7. osztály',
-  'Hit- és Erkölcstan csoport 14': '8. osztály',
-  'Hit- és Erkölcstan csoport 15': '1. osztály',
-  'Hit- és Erkölcstan csoport 16': '2/B. osztály',
-  'Hit- és Erkölcstan csoport 17': '2/A. osztály',
-  'Hit- és Erkölcstan csoport 19': '3. osztály',
-  'Hit- és Erkölcstan csoport 20': '5. osztály',
-
-  // Erkölcstan
-  'Etika/Hit- és erkölcstan 1': '6/A. osztály',
-  'Etika/Hit- és erkölcstan 2': '7. osztály',
-  'Etika/Hit- és erkölcstan 3': '8. osztály',
+  // Hit- és Erkölcstan csoportok 1-10
+  'Etika/Hit- és erkölcstan 1': '5/A. osztály',
+  'Etika/Hit- és erkölcstan 2': '6. osztály',
+  'Etika/Hit- és erkölcstan 3': '7. osztály',
   'Etika/Hit- és erkölcstan 4': 'Aut. Összevont',
-  'Etika/Hit- és erkölcstan 5': '5. osztály',
-  'Etika/Hit- és erkölcstan 6': '2/A. osztály',
-  'Etika/Hit- és erkölcstan 7': '3. osztály',
-  'Etika/Hit- és erkölcstan 8': '4. osztály',
-  'Etika/Hit- és erkölcstan 9': '1. osztály',
+  'Etika/Hit- és erkölcstan 5': '4. osztály',
+  'Etika/Hit- és erkölcstan 6': '1/A. osztály',
+  'Etika/Hit- és erkölcstan 7': '2. osztály',
+  'Etika/Hit- és erkölcstan 8': '3. osztály',
+  'Etika/Hit- és erkölcstan 9': '8. osztály',
   'Etika/Hit- és erkölcstan 10': '2/B. osztály',
 
-  'Hit- és Erkölcstan csoport 1': '6/A. osztály',
-  'Hit- és Erkölcstan csoport 2': '7. osztály',
-  'Hit- és Erkölcstan csoport 3': '8. osztály',
+  'Hit- és Erkölcstan csoport 1': '5/A. osztály',
+  'Hit- és Erkölcstan csoport 2': '6. osztály',
+  'Hit- és Erkölcstan csoport 3': '7. osztály',
   'Hit- és Erkölcstan csoport 4': 'Aut. Összevont',
-  'Hit- és Erkölcstan csoport 5': '5. osztály',
-  'Hit- és Erkölcstan csoport 6': '2/A. osztály',
-  'Hit- és Erkölcstan csoport 7': '3. osztály',
-  'Hit- és Erkölcstan csoport 8': '4. osztály',
-  'Hit- és Erkölcstan csoport 9': '1. osztály',
+  'Hit- és Erkölcstan csoport 5': '4. osztály',
+  'Hit- és Erkölcstan csoport 6': '1/A. osztály',
+  'Hit- és Erkölcstan csoport 7': '2. osztály',
+  'Hit- és Erkölcstan csoport 8': '3. osztály',
+  'Hit- és Erkölcstan csoport 9': '8. osztály',
   'Hit- és Erkölcstan csoport 10': '2/B. osztály',
+
+  // Hit- és Erkölcstan csoportok 12-20
+  'Etika/Hit- és erkölcstan csoport 12': '5/A. osztály',
+  'Etika/Hit- és erkölcstan csoport 13': '6. osztály',
+  'Etika/Hit- és erkölcstan csoport 14': '7. osztály',
+  'Etika/Hit- és erkölcstan csoport 15': '1/A. osztály',
+  'Etika/Hit- és erkölcstan csoport 16': '8. osztály',
+  'Etika/Hit- és erkölcstan csoport 17': '1/A. osztály',
+  'Etika/Hit- és erkölcstan csoport 19': '2. osztály',
+  'Etika/Hit- és erkölcstan csoport 20': '4. osztály',
+
+  'Hit- és Erkölcstan csoport 12': '5/A. osztály',
+  'Hit- és Erkölcstan csoport 13': '6. osztály',
+  'Hit- és Erkölcstan csoport 14': '7. osztály',
+  'Hit- és Erkölcstan csoport 15': '1/A. osztály',
+  'Hit- és Erkölcstan csoport 16': '8. osztály',
+  'Hit- és Erkölcstan csoport 17': '1/A. osztály',
+  'Hit- és Erkölcstan csoport 19': '2. osztály',
+  'Hit- és Erkölcstan csoport 20': '4. osztály',
+};
+
+export interface ResolvedKretaClassGroup {
+  className: string;
+  groupName?: string;
+  isNapkozi?: boolean;
+}
+
+export const resolveKretaClassAndGroup = (
+  rawClass?: string,
+  rawGroup?: string,
+  rawSubject?: string,
+  rawRoom?: string,
+  knownClasses?: Set<string>
+): ResolvedKretaClassGroup => {
+  const cls = (rawClass || '').trim();
+  const grp = (rawGroup || '').trim();
+  const subj = (rawSubject || '').trim();
+  const room = (rawRoom || '').trim();
+
+  const pickClass = (candidates: string[]): string => {
+    if (knownClasses && knownClasses.size > 0) {
+      for (const cand of candidates) {
+        if (knownClasses.has(cand)) return cand;
+      }
+      for (const cand of candidates) {
+        const lowerCand = cand.toLowerCase();
+        for (const k of knownClasses) {
+          if (k.toLowerCase() === lowerCand) return k;
+        }
+      }
+    }
+    return candidates[0];
+  };
+
+  // 1. Hit- és erkölcstan groups
+  const HITTAN_CANDIDATES: Record<string, string[]> = {
+    'Etika/Hit- és erkölcstan 1': ['5/A. osztály', '5. osztály'],
+    'Etika/Hit- és erkölcstan 2': ['6. osztály', '6/A. osztály'],
+    'Etika/Hit- és erkölcstan 3': ['7. osztály'],
+    'Etika/Hit- és erkölcstan 4': ['Aut. Összevont'],
+    'Etika/Hit- és erkölcstan 5': ['4. osztály'],
+    'Etika/Hit- és erkölcstan 6': ['1/A. osztály', '1. osztály'],
+    'Etika/Hit- és erkölcstan 7': ['2. osztály', '2/A. osztály'],
+    'Etika/Hit- és erkölcstan 8': ['3. osztály'],
+    'Etika/Hit- és erkölcstan 9': ['8. osztály'],
+    'Etika/Hit- és erkölcstan 10': ['2/B. osztály'],
+
+    'Hit- és Erkölcstan csoport 1': ['5/A. osztály', '5. osztály'],
+    'Hit- és Erkölcstan csoport 2': ['6. osztály', '6/A. osztály'],
+    'Hit- és Erkölcstan csoport 3': ['7. osztály'],
+    'Hit- és Erkölcstan csoport 4': ['Aut. Összevont'],
+    'Hit- és Erkölcstan csoport 5': ['4. osztály'],
+    'Hit- és Erkölcstan csoport 6': ['1/A. osztály', '1. osztály'],
+    'Hit- és Erkölcstan csoport 7': ['2. osztály', '2/A. osztály'],
+    'Hit- és Erkölcstan csoport 8': ['3. osztály'],
+    'Hit- és Erkölcstan csoport 9': ['8. osztály'],
+    'Hit- és Erkölcstan csoport 10': ['2/B. osztály'],
+
+    'Etika/Hit- és erkölcstan csoport 12': ['5/A. osztály', '5. osztály'],
+    'Etika/Hit- és erkölcstan csoport 13': ['6. osztály', '6/A. osztály'],
+    'Etika/Hit- és erkölcstan csoport 14': ['7. osztály'],
+    'Etika/Hit- és erkölcstan csoport 15': ['1/A. osztály', '1. osztály'],
+    'Etika/Hit- és erkölcstan csoport 16': ['8. osztály'],
+    'Etika/Hit- és erkölcstan csoport 17': ['1/A. osztály', '1. osztály'],
+    'Etika/Hit- és erkölcstan csoport 19': ['2. osztály', '2/A. osztály'],
+    'Etika/Hit- és erkölcstan csoport 20': ['4. osztály'],
+
+    'Hit- és Erkölcstan csoport 12': ['5/A. osztály', '5. osztály'],
+    'Hit- és Erkölcstan csoport 13': ['6. osztály', '6/A. osztály'],
+    'Hit- és Erkölcstan csoport 14': ['7. osztály'],
+    'Hit- és Erkölcstan csoport 15': ['1/A. osztály', '1. osztály'],
+    'Hit- és Erkölcstan csoport 16': ['8. osztály'],
+    'Hit- és Erkölcstan csoport 17': ['1/A. osztály', '1. osztály'],
+    'Hit- és Erkölcstan csoport 19': ['2. osztály', '2/A. osztály'],
+    'Hit- és Erkölcstan csoport 20': ['4. osztály'],
+  };
+
+  const hittanKey = (grp && HITTAN_CANDIDATES[grp]) ? grp : ((cls && HITTAN_CANDIDATES[cls]) ? cls : null);
+  if (hittanKey) {
+    return { className: pickClass(HITTAN_CANDIDATES[hittanKey]), groupName: hittanKey };
+  }
+
+  // 2. Napközi daycare groups
+  const napkoziTarget = (grp.toLowerCase().includes('napköz') ? grp : (cls.toLowerCase().includes('napköz') ? cls : ''));
+  const isNapkoziSubj = subj.toLowerCase().includes('napközi');
+  if (napkoziTarget || isNapkoziSubj) {
+    const rawTarget = napkoziTarget || grp || cls;
+    const napkoziMatch = rawTarget.match(/^(.*?)(?:\s+osztály)?\s+napközis?\s+csoport(?:ja)?$/i);
+    let base = napkoziMatch ? napkoziMatch[1].trim() : rawTarget.replace(/napközis?\s+csoport(?:ja)?/i, '').replace(/osztály$/i, '').trim();
+    
+    let targetClass = '';
+    if (/^1$/i.test(base) || /^1\.$/i.test(base)) targetClass = pickClass(['1/A. osztály', '1. osztály']);
+    else if (/^1\/[Aa]$/i.test(base)) targetClass = '1/A. osztály';
+    else if (/^1\/[Bb]$/i.test(base)) targetClass = '1/B. osztály';
+    else if (/^2$/i.test(base) || /^2\.$/i.test(base)) targetClass = pickClass(['2. osztály', '2/A. osztály']);
+    else if (/^2\/[Aa]$/i.test(base)) targetClass = '2/A. osztály';
+    else if (/^2\/[Bb]$/i.test(base)) targetClass = '2/B. osztály';
+    else if (/^3$/i.test(base) || /^3\.$/i.test(base)) targetClass = '3. osztály';
+    else if (/^4$/i.test(base) || /^4\.$/i.test(base)) targetClass = '4. osztály';
+    else if (/^5$/i.test(base) || /^5\.$/i.test(base)) targetClass = pickClass(['5/A. osztály', '5. osztály']);
+    else if (/^5\/[Aa]$/i.test(base)) targetClass = '5/A. osztály';
+    else if (/^5\/[Bb]$/i.test(base)) targetClass = '5/B. osztály';
+    else if (/^6$/i.test(base) || /^6\.$/i.test(base)) targetClass = pickClass(['6. osztály', '6/A. osztály']);
+    else if (/^6\/[Aa]$/i.test(base)) targetClass = '6/A. osztály';
+    else if (/^6\/[Bb]$/i.test(base)) targetClass = '6/B. osztály';
+    else if (/^7$/i.test(base) || /^7\.$/i.test(base)) targetClass = '7. osztály';
+    else if (/^8$/i.test(base) || /^8\.$/i.test(base)) targetClass = '8. osztály';
+    else if (/^9\.\s*Szobafestő/i.test(base)) targetClass = '9. Szobafestő';
+    else if (/^9\.\s*Számítógépes/i.test(base) || /9\.?\s*Számítógépes-adatrögzítő/i.test(base)) targetClass = '9. Számítógépes-adatrögzítő';
+    else if (/^9\.\s*Családellátó/i.test(base)) targetClass = '9. Családellátó';
+    else if (/^9\/[Ee]$/i.test(base) || /^9\/[Ee]\.?\s*osztály/i.test(base)) targetClass = pickClass(['9/E. osztály', '9/E/A. osztály']);
+    else if (/^10\.\s*Textil/i.test(base) || /10\.?\s*Textiltermék/i.test(base)) targetClass = '10/Textiltermék összeállító';
+    else if (/^10\.\s*Szobafestő/i.test(base)) targetClass = '10. Szobafestő';
+    else if (/^10\.\s*Számítógépes/i.test(base)) targetClass = '10. Számítógépes-adatrögzítő';
+    else if (/^Aut(ista|\.)\s*Összevont/i.test(base)) targetClass = 'Aut. Összevont';
+    else if (base) targetClass = normalizeClassName(base);
+
+    if (targetClass) {
+      return { className: targetClass, groupName: 'Napközis csoport', isNapkozi: true };
+    }
+  }
+
+  // 3. Subgroup divisions A / B
+  const checkSubgroupStr = (grp.match(/[AB]\s+csoport/i) ? grp : (cls.match(/[AB]\s+csoport/i) ? cls : ''));
+  if (checkSubgroupStr) {
+    const abMatch = checkSubgroupStr.match(/^(.*?)(?:\s+osztály)?\s+([AB])\s+csoport(?:ja)?$/i);
+    if (abMatch) {
+      let base = abMatch[1].trim();
+      const groupLetter = abMatch[2].toUpperCase();
+      let targetClass = '';
+      if (/^1$/i.test(base) || /^1\.$/i.test(base)) targetClass = pickClass(['1/A. osztály', '1. osztály']);
+      else if (/^1\/[Bb]$/i.test(base)) targetClass = '1/B. osztály';
+      else if (/^1\/[Aa]$/i.test(base)) targetClass = '1/A. osztály';
+      else if (/^2$/i.test(base) || /^2\.$/i.test(base)) targetClass = pickClass(['2. osztály', '2/A. osztály']);
+      else if (/^2\/[Aa]$/i.test(base)) targetClass = '2/A. osztály';
+      else if (/^2\/[Bb]$/i.test(base)) targetClass = '2/B. osztály';
+      else if (/^3$/i.test(base) || /^3\.$/i.test(base)) targetClass = '3. osztály';
+      else if (/^4$/i.test(base) || /^4\.$/i.test(base)) targetClass = '4. osztály';
+      else if (/^5$/i.test(base) || /^5\.$/i.test(base)) targetClass = pickClass(['5/A. osztály', '5. osztály']);
+      else if (/^6$/i.test(base) || /^6\.$/i.test(base)) targetClass = pickClass(['6. osztály', '6/A. osztály']);
+      else if (/^7$/i.test(base) || /^7\.$/i.test(base)) targetClass = '7. osztály';
+      else if (/^8$/i.test(base) || /^8\.$/i.test(base)) targetClass = '8. osztály';
+      else if (/^Aut(ista|\.)\s*Összevont/i.test(base)) targetClass = 'Aut. Összevont';
+      else if (/^Készségfejlesztő\s+11-12/i.test(base)) targetClass = 'Készségfejlesztő 11-12.';
+      else if (/^Készségfejlesztő\s+9-10/i.test(base)) targetClass = 'Készségfejlesztő 9-10.';
+      else targetClass = normalizeClassName(base);
+
+      return { className: targetClass, groupName: `${groupLetter} csoport` };
+    }
+  }
+
+  // 4. Készségfejlesztő subgroups
+  const kfStr = grp || cls;
+  if (/^Készségfejlesztő\s+9-10\/([AB])\s+csoport/i.test(kfStr)) {
+    const m = kfStr.match(/([AB])/i);
+    return { className: 'Készségfejlesztő 9-10.', groupName: (m ? m[1].toUpperCase() : '') + ' csoport' };
+  }
+  if (/^Készségfejlesztő\s+(11|12)\s+csoport/i.test(kfStr)) {
+    const m = kfStr.match(/(11|12)/i);
+    return { className: 'Készségfejlesztő 11-12.', groupName: (m ? m[1] : '') + ' csoport' };
+  }
+
+  // 5. Utazó gyógypedagógiai groups
+  if (/^utazó/i.test(grp) || /^utazó/i.test(cls) || subj.toLowerCase().includes('logopédia') || subj.toLowerCase().includes('fejlesztés') || subj.toLowerCase().includes('tsmt')) {
+    return { className: 'Utazó gyógypedagógiai osztály', groupName: grp || cls || undefined };
+  }
+
+  // 6. Kollégium
+  if (/^kollégium/i.test(grp) || /^kollégium/i.test(cls) || subj.toLowerCase().includes('állampolgárság') || subj.toLowerCase().includes('erkölcsi nevelés') || subj.toLowerCase().includes('önismeret') || subj.toLowerCase().includes('családi életre')) {
+    return { className: 'Kollégium', groupName: grp || cls || undefined };
+  }
+
+  // 7. Fejlesztő felkészítő
+  if (/^fejlesztő\s+felkészítő/i.test(grp) || /^fejlesztő\s+felkészítő/i.test(cls)) {
+    return { className: 'Fejlesztő iskolai osztály', groupName: grp || cls || undefined };
+  }
+
+  // 8. Explicit class given
+  if (cls) {
+    const norm = normalizeClassName(cls);
+    return { className: norm, groupName: grp || undefined };
+  }
+
+  // 9. Fallback if class was empty
+  if (grp) {
+    const oszthalyIndex = grp.toLowerCase().indexOf('osztály');
+    if (oszthalyIndex !== -1) {
+      const extracted = grp.substring(0, oszthalyIndex + 7).trim();
+      return { className: normalizeClassName(extracted), groupName: grp };
+    }
+    return { className: normalizeClassName(grp), groupName: grp };
+  }
+
+  return { className: 'Egyéb csoportok' };
 };
 
 export const parseTimetableFile = (data: any[][]): ParsedData => {
@@ -152,6 +347,18 @@ export const parseTimetableFile = (data: any[][]): ParsedData => {
 
   let lastSeenClass = '';
 
+  // Pass 1: find known classes from non-empty Osztály column
+  const knownClasses = new Set<string>();
+  for (let i = 2; i < data.length; i++) {
+    const r = data[i];
+    if (r && r[0]) {
+      const c = r[0].toString().trim();
+      if (c && !/csoport|hittan|etika|utazó/i.test(c)) {
+        knownClasses.add(normalizeClassName(c));
+      }
+    }
+  }
+
   // Parse allocations from rows
   for (let rowIndex = 2; rowIndex < data.length; rowIndex++) {
     const row = data[rowIndex];
@@ -166,49 +373,18 @@ export const parseTimetableFile = (data: any[][]): ParsedData => {
       lastSeenClass = classNameStr;
     }
 
-    let resolvedClass = classNameStr;
-
-    // Check Hittan / Etika group mapping first
-    if (groupNameStr && HITTAN_GROUP_CLASS_MAP[groupNameStr]) {
-      resolvedClass = HITTAN_GROUP_CLASS_MAP[groupNameStr];
-    }
-
-    // Resolve empty class names from Group or Subject name
-    if (!resolvedClass) {
-      if (groupNameStr) {
-        const napkoziRegex = /napközis\s+csoportja/i;
-        if (napkoziRegex.test(groupNameStr)) {
-          // Napközi daycare: extract the base class name
-          resolvedClass = groupNameStr.replace(napkoziRegex, '').trim();
-          resolvedClass = resolvedClass.replace(/\.$/, '').trim();
-        } else {
-          // If group name contains "osztály", extract up to it
-          const oszthalyIndex = groupNameStr.toLowerCase().indexOf('osztály');
-          if (oszthalyIndex !== -1) {
-            resolvedClass = groupNameStr.substring(0, oszthalyIndex + 7).trim();
-          } else {
-            // Otherwise use group name as the class
-            resolvedClass = groupNameStr;
-          }
-        }
-      } else if (subjectNameStr) {
-        // Fallback for special education / logopedics / hostel (kollégium)
-        if (subjectNameStr.toLowerCase().includes('logopédia') || subjectNameStr.toLowerCase().includes('fejlesztés') || subjectNameStr.toLowerCase().includes('tsmt')) {
-          resolvedClass = 'Utazó gyógypedagógiai osztály';
-        } else if (subjectNameStr.toLowerCase().includes('állampolgárság') || subjectNameStr.toLowerCase().includes('erkölcsi nevelés') || subjectNameStr.toLowerCase().includes('önismeret') || subjectNameStr.toLowerCase().includes('családi életre')) {
-          resolvedClass = 'Kollégium';
-        } else {
-          resolvedClass = lastSeenClass || 'Egyéb';
-        }
-      }
-    }
+    const { className: resolvedClass, groupName: resolvedGroup } = resolveKretaClassAndGroup(
+      classNameStr || lastSeenClass,
+      groupNameStr,
+      subjectNameStr,
+      undefined,
+      knownClasses
+    );
 
     // Skip row if we still couldn't resolve a class or if subject is missing
     if (!resolvedClass || !subjectNameStr) continue;
 
-    // Normalize names to avoid duplication
-    resolvedClass = normalizeClassName(resolvedClass);
-    subjectNameStr = normalizeSubjectName(subjectNameStr);
+    const normalizedSubject = normalizeSubjectName(subjectNameStr);
 
     let currentClass = classMap.get(resolvedClass);
     if (!currentClass) {
@@ -217,11 +393,11 @@ export const parseTimetableFile = (data: any[][]): ParsedData => {
       classMap.set(resolvedClass, currentClass);
     }
 
-    let currentSubject = subjectMap.get(subjectNameStr);
+    let currentSubject = subjectMap.get(normalizedSubject);
     if (!currentSubject) {
-      currentSubject = { id: `s${subjects.length + 1}`, name: subjectNameStr };
+      currentSubject = { id: `s${subjects.length + 1}`, name: normalizedSubject };
       subjects.push(currentSubject);
-      subjectMap.set(subjectNameStr, currentSubject);
+      subjectMap.set(normalizedSubject, currentSubject);
     }
 
     // Process weekly hours for each teacher in columns
@@ -237,8 +413,8 @@ export const parseTimetableFile = (data: any[][]): ParsedData => {
           classId: currentClass.id,
           subjectId: currentSubject.id,
           weeklyHours: weeklyHours,
-          originalClass: classNameStr || undefined,
-          originalGroup: groupNameStr || undefined,
+          originalClass: classNameStr || resolvedClass,
+          originalGroup: resolvedGroup || groupNameStr || undefined,
         };
         allocations.push(newAllocation);
       }
@@ -259,20 +435,31 @@ export const migrateHittanState = (state: AppHistoryState): AppHistoryState => {
 
   let modified = false;
 
-  const NON_CLASS_GROUPS = new Set([
-    'Labdarúgás', 'Digitális kultúra', 'Tánc', 'Logopédiai ellátás', 
-    'Gyógytestnevelés csoportja', 'Könyvtár csoport', 'Zenei nevelés', 
-    'Fejlesztő Felkészítő csoport', 'Fejlesztő Felkészítő csoport II.',
-    'Mozgásfejlesztés csoport (belső)', '6. osztály'
-  ]);
+  const isNonClassGroup = (name: string) => {
+    return /labdarúgás|digitális kultúra|tánc|logopédia|gyógytestnevelés|könyvtár|zenei|fejlesztő felkészítő|mozgásfejlesztés/i.test(name);
+  };
+
+  // Find pure classes (not groups or special activities)
+  const existingClassNames = new Set<string>();
+  classes.forEach(c => {
+    const norm = normalizeClassName(c.name);
+    if (!isNonClassGroup(norm) && !/csoport|etika|hittan/i.test(norm)) {
+      existingClassNames.add(norm);
+    }
+  });
 
   const canonicalClassMap = new Map<string, Class>();
   const classIdRemap = new Map<string, string>();
 
   classes.forEach(c => {
-    let targetName = HITTAN_GROUP_CLASS_MAP[c.name] || normalizeClassName(c.name);
-    if (NON_CLASS_GROUPS.has(c.name) || NON_CLASS_GROUPS.has(targetName)) {
+    let targetName = normalizeClassName(c.name);
+    if (isNonClassGroup(c.name) || isNonClassGroup(targetName)) {
       targetName = 'Egyéb csoportok';
+    } else {
+      const resolved = resolveKretaClassAndGroup(c.name, undefined, undefined, undefined, existingClassNames);
+      if (resolved.className && resolved.className !== 'Egyéb csoportok') {
+        targetName = resolved.className;
+      }
     }
     
     let canonical = canonicalClassMap.get(targetName);
@@ -303,9 +490,14 @@ export const migrateHittanState = (state: AppHistoryState): AppHistoryState => {
     const groupName = alloc.originalGroup || currentClass?.name || '';
     const origClass = alloc.originalClass || '';
     
-    let targetClassName = HITTAN_GROUP_CLASS_MAP[groupName] || (currentClass ? HITTAN_GROUP_CLASS_MAP[currentClass.name] : undefined);
-    if (!targetClassName && (NON_CLASS_GROUPS.has(groupName) || (currentClass && NON_CLASS_GROUPS.has(currentClass.name)))) {
+    let targetClassName: string | undefined = undefined;
+    if (isNonClassGroup(groupName) || (currentClass && isNonClassGroup(currentClass.name))) {
       targetClassName = 'Egyéb csoportok';
+    } else {
+      const resolved = resolveKretaClassAndGroup(origClass || currentClass?.name, groupName, undefined, undefined, existingClassNames);
+      if (resolved.className && resolved.className !== 'Egyéb csoportok') {
+        targetClassName = resolved.className;
+      }
     }
 
     if (!targetClassName && origClass) {
@@ -670,6 +862,20 @@ export const parseKretaCombinedExports = (
 
   const roomsSet = new Set<string>();
   const placedInstancesByAllocId = new Map<string, { day: number; period: number; room: string }[]>();
+  // Pass 1: find known classes from non-empty Osztály column
+  const knownClasses = new Set<string>();
+  if (ttfData?.classes) {
+    ttfData.classes.forEach(c => knownClasses.add(c.name));
+  }
+  for (let rowIndex = 1; rowIndex < orarendRows.length; rowIndex++) {
+    const r = orarendRows[rowIndex];
+    if (r && r[colClass]) {
+      const c = r[colClass].toString().trim();
+      if (c && !/csoport|hittan|etika|utazó/i.test(c)) {
+        knownClasses.add(normalizeClassName(c));
+      }
+    }
+  }
 
   for (let rowIndex = 1; rowIndex < orarendRows.length; rowIndex++) {
     const row = orarendRows[rowIndex];
@@ -709,20 +915,15 @@ export const parseKretaCombinedExports = (
       teacherMapByName.set(cleanTeacherName.toLowerCase(), teacher);
     }
 
-    // Resolve Class
-    let resolvedClass = rawClassStr;
-    if (rawGroupStr && HITTAN_GROUP_CLASS_MAP[rawGroupStr]) {
-      resolvedClass = HITTAN_GROUP_CLASS_MAP[rawGroupStr];
-    }
-    if (!resolvedClass) {
-      const matchGroup = rawGroupStr.match(/^(?:([1-9]|1[0-2])(?:\.|\/)[A-Za-z0-9\/\s]+?)(?=\s*(?:csoport|napközi|tanulószoba|$))/i);
-      if (matchGroup) {
-        resolvedClass = matchGroup[0].trim();
-      } else {
-        resolvedClass = rawGroupStr || 'Ismeretlen Osztály';
-      }
-    }
-    const cleanClassName = normalizeClassName(resolvedClass);
+    // Resolve Class and Group
+    const { className: cleanClassName, groupName: resolvedGroup } = resolveKretaClassAndGroup(
+      rawClassStr,
+      rawGroupStr,
+      rawSubjectStr,
+      rawRoomStr,
+      knownClasses
+    );
+
     let classObj = classMapByName.get(cleanClassName.toLowerCase());
     if (!classObj) {
       classObj = {
@@ -746,8 +947,16 @@ export const parseKretaCombinedExports = (
     }
 
     // Find or create Allocation
-    const allocKey = makeAllocKey(teacher.name, cleanClassName, rawGroupStr, cleanSubjectName);
+    const allocKey = makeAllocKey(teacher.name, cleanClassName, resolvedGroup || '', cleanSubjectName);
     let allocation = allocMapByKey.get(allocKey);
+    if (!allocation) {
+      const fallbackKey = makeAllocKey(teacher.name, cleanClassName, '', cleanSubjectName);
+      const fallbackAlloc = allocMapByKey.get(fallbackKey);
+      if (fallbackAlloc && !fallbackAlloc.originalGroup) {
+        allocation = fallbackAlloc;
+        allocation.originalGroup = resolvedGroup || rawGroupStr || undefined;
+      }
+    }
     if (!allocation) {
       allocation = {
         id: `alloc-gen-${allocations.length + 1}`,
@@ -755,8 +964,8 @@ export const parseKretaCombinedExports = (
         classId: classObj.id,
         subjectId: subject.id,
         weeklyHours: 0,
-        originalClass: rawClassStr,
-        originalGroup: rawGroupStr
+        originalClass: rawClassStr || cleanClassName,
+        originalGroup: resolvedGroup || rawGroupStr || undefined
       };
       allocations.push(allocation);
       allocMapByKey.set(allocKey, allocation);

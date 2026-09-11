@@ -61,12 +61,28 @@ export const PlacedLessonCard: React.FC<PlacedLessonCardProps> = ({ lesson, find
     
     const backgroundColor = teacher?.color || 'bg-gray-500';
 
+    const rawGroup = (lesson.allocation.originalGroup || '').trim();
+    let groupBadge = '';
+    if (rawGroup) {
+      if (/^[AB]\s+csoport/i.test(rawGroup)) {
+        groupBadge = rawGroup.substring(0, 1).toUpperCase() + ' csop.';
+      } else if (/napköz/i.test(rawGroup)) {
+        groupBadge = 'Napközi';
+      } else if (/^(11|12)\s+csoport/i.test(rawGroup)) {
+        groupBadge = rawGroup;
+      } else if (!rawGroup.toLowerCase().includes('osztály') && rawGroup.length <= 15) {
+        groupBadge = rawGroup;
+      }
+    }
+
     const cardClasses = isParallel
         ? `relative p-1 ${backgroundColor} text-white rounded shadow-md flex flex-col justify-center items-center text-center leading-tight overflow-hidden flex-grow basis-[48%] min-h-[48%]`
         : `relative w-full h-full p-2 ${backgroundColor} text-white rounded-md shadow-lg flex flex-col justify-center items-center text-center leading-tight overflow-hidden`;
     
     const mainTextSize = isParallel ? 'text-xxs' : 'text-xs';
     const subTextSize = isParallel ? 'text-[0.6rem] leading-[0.7rem]' : 'text-xxs';
+
+    const cardTitle = `${mainText || ''} - ${subText || ''}${rawGroup ? ` (${rawGroup})` : ''}`;
 
     return (
         <div className={`PlacedLessonCard ${cardClasses}`}>
@@ -77,8 +93,15 @@ export const PlacedLessonCard: React.FC<PlacedLessonCardProps> = ({ lesson, find
             >
                 <TrashIcon className="w-3 h-3"/>
             </button>
-            <div title={mainText || ''} className={`font-bold ${mainTextSize} truncate w-full`}>{mainText}</div>
-            <div title={subText || ''} className={`${subTextSize} truncate w-full`}>{subText}</div>
+            <div title={cardTitle} className={`font-bold ${mainTextSize} truncate w-full`}>{mainText}</div>
+            <div title={cardTitle} className={`${subTextSize} truncate w-full flex items-center justify-center gap-1`}>
+                <span className="truncate">{subText}</span>
+                {groupBadge && (
+                    <span className="shrink-0 text-[0.75em] font-semibold bg-black/35 text-white/95 px-1 py-0.2 rounded border border-white/20">
+                        {groupBadge}
+                    </span>
+                )}
+            </div>
         </div>
     );
-}
+};
