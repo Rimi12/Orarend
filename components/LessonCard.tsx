@@ -68,6 +68,11 @@ export const PlacedLessonCard: React.FC<PlacedLessonCardProps> = ({ lesson, find
         groupBadge = rawGroup.substring(0, 1).toUpperCase() + ' csop.';
       } else if (/napköz/i.test(rawGroup)) {
         groupBadge = 'Napközi';
+      } else if (/etika|hit/i.test(rawGroup) || /etika|hit/i.test(subText || '')) {
+        const isHittan = /hittan/i.test(teacher?.name || '') || /hittan/i.test(rawGroup);
+        const matchNum = rawGroup.match(/\d+/);
+        const numSuffix = matchNum ? ` ${matchNum[0]}` : '';
+        groupBadge = isHittan ? `Hittan${numSuffix}` : `Etika${numSuffix}`;
       } else if (/^(11|12)\s+csoport/i.test(rawGroup)) {
         groupBadge = rawGroup;
       } else if (!rawGroup.toLowerCase().includes('osztály') && rawGroup.length <= 15) {
@@ -82,7 +87,8 @@ export const PlacedLessonCard: React.FC<PlacedLessonCardProps> = ({ lesson, find
     const mainTextSize = isParallel ? 'text-xxs' : 'text-xs';
     const subTextSize = isParallel ? 'text-[0.6rem] leading-[0.7rem]' : 'text-xxs';
 
-    const cardTitle = `${mainText || ''} - ${subText || ''}${rawGroup ? ` (${rawGroup})` : ''}`;
+    const roomInfo = lesson.room ? ` [${lesson.room}]` : '';
+    const cardTitle = `${mainText || ''} - ${subText || ''}${rawGroup ? ` (${rawGroup})` : ''}${roomInfo}`;
 
     return (
         <div className={`PlacedLessonCard ${cardClasses}`}>

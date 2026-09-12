@@ -34,6 +34,7 @@ export interface PlacedLesson {
   allocation: Allocation;
   day: number;
   period: number;
+  room?: string;
 }
 
 // Represents the draggable items
