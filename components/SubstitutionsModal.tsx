@@ -135,8 +135,11 @@ export const SubstitutionsModal: React.FC<SubstitutionsModalProps> = ({ isOpen, 
               <span className="text-2xl">🔄</span>
               Kréta Helyettesítések Áttekintése
             </h2>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-              A Kréta „Helyettesítések listája export” alapján felismert tartós és eseti helyettesítések.
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 flex flex-wrap items-center gap-2">
+              <span>A Kréta „Helyettesítések listája export” alapján felismert tartós és eseti helyettesítések.</span>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300">
+                📅 2026. szept. 7. héttől (végleges órarend)
+              </span>
             </p>
           </div>
 
@@ -210,6 +213,14 @@ export const SubstitutionsModal: React.FC<SubstitutionsModalProps> = ({ isOpen, 
             </div>
             <div className="text-[11px] text-gray-400 mt-0.5">kolléga hiányzik</div>
           </div>
+        </div>
+
+        {/* Info Banner for September 7 week validity */}
+        <div className="px-6 py-2.5 bg-blue-50/70 dark:bg-blue-950/30 border-b border-blue-200/60 dark:border-blue-800/40 text-xs text-blue-800 dark:text-blue-300 flex items-center gap-2">
+          <span>ℹ️</span>
+          <span>
+            <strong>Órarendi érvényesség:</strong> Csak a 2026. szeptember 7-i héten és azt követően érvényes végleges helyettesítések jelennek meg. Az 1. heti (szept. 1–4.) ideiglenes helyettesítések automatikusan ki lettek szűrve a helyes órarendi megjelenítéshez.
+          </span>
         </div>
 
         {/* Filters and Search */}

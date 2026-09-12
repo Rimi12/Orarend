@@ -293,7 +293,7 @@ export const KretaTimetableImportModal: React.FC<KretaTimetableImportModalProps>
                         </span>
                       </div>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        A Kréta <code className="bg-white dark:bg-gray-800 px-1 py-0.5 rounded text-[11px]">helyettesiteseklistajaexport.xlsx</code> exportja a tartós helyettesítések idősávjainak zárolásához és órarendi megjelenítéséhez.
+                        A Kréta <code className="bg-white dark:bg-gray-800 px-1 py-0.5 rounded text-[11px]">helyettesiteseklistajaexport.xlsx</code> exportja a helyettesítések órarendi megjelenítéséhez. Az alkalmazás automatikusan a végleges (szeptember 7-i héttől érvényes) adatokat dolgozza fel, a kezdeti 1. hét ideiglenes adatait kiszűri.
                       </p>
                     </div>
                   </div>

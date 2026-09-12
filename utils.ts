@@ -733,7 +733,9 @@ export const parseKretaSubstitutionExport = (
   rows: any[],
   teachers: Teacher[] = [],
   classes: Class[] = [],
-  subjects: Subject[] = []
+  subjects: Subject[] = [],
+  minDate: string = '2026-09-07',
+  maxDate?: string
 ): Substitution[] => {
   if (!rows || rows.length < 2) return [];
 
@@ -828,6 +830,10 @@ export const parseKretaSubstitutionExport = (
     if (!subTeacher) continue;
     const dateInfo = parseExcelDateToDayAndString(rawDate);
     if (!dateInfo || dateInfo.dayIndex < 0 || dateInfo.dayIndex >= NUMBER_OF_DAYS) continue;
+
+    // Az 1. heti (szeptember 7. előtti) nem végleges helyettesítések kiszűrése
+    if (minDate && dateInfo.dateStr < minDate) continue;
+    if (maxDate && dateInfo.dateStr > maxDate) continue;
 
     const periodNum = parseInt(String(rawPeriod || '1').trim(), 10);
     if (isNaN(periodNum) || periodNum < 1 || periodNum > NUMBER_OF_PERIODS) continue;
@@ -1181,7 +1187,8 @@ export const parseKretaCombinedExports = (
         substitutionRows,
         migratedState.teachers,
         migratedState.classes,
-        migratedState.subjects
+        migratedState.subjects,
+        '2026-09-07'
       );
       migratedState.teachers = applySubstitutionsToAvailability(
         migratedState.teachers,

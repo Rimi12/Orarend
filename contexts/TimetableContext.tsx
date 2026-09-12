@@ -152,10 +152,37 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }, []);
 
     // ── Substitutions State ─────────────────────────────────────────────────────
+    const sanitizeSubstitutionsForSept7 = useCallback((subs: Substitution[]): Substitution[] => {
+        if (!Array.isArray(subs)) return [];
+        return subs
+            .map(sub => {
+                const validDates = sub.dates ? sub.dates.filter(d => d >= '2026-09-07') : [];
+                // If it only contained dates before 2026-09-07, it was an unfinalized week 1 temporary slot
+                if (sub.dates && sub.dates.length > 0 && validDates.length === 0) {
+                    return null;
+                }
+                const occurrences = validDates.length > 0 ? validDates.length : sub.occurrences;
+                const firstDate = validDates[0] || sub.dates?.[0];
+                const lastDate = validDates[validDates.length - 1] || sub.dates?.[sub.dates?.length - 1];
+                const dateRange = firstDate === lastDate ? firstDate : `${firstDate} – ${lastDate}`;
+                return {
+                    ...sub,
+                    dates: validDates.length > 0 ? validDates : sub.dates,
+                    occurrences,
+                    dateRange: dateRange || sub.dateRange,
+                    isLongTerm: occurrences >= 2
+                };
+            })
+            .filter((s): s is Substitution => s !== null);
+    }, []);
+
     const [substitutions, setSubstitutions] = useState<Substitution[]>(() => {
         try {
             const saved = localStorage.getItem('timetable_substitutions_v1');
-            if (saved) return JSON.parse(saved);
+            if (saved) {
+                const parsed: Substitution[] = JSON.parse(saved);
+                return sanitizeSubstitutionsForSept7(parsed);
+            }
         } catch {}
         return [];
     });
@@ -547,6 +574,7 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             const safePlacedLessons = (savedState.placedLessons || []).filter(pl => pl && pl.allocation && pl.allocation.id && pl.allocation.teacherId && pl.allocation.classId);
             
             // Reconstruct the state object ensuring all keys are present to prevent crashes with older save files.
+            const sanitizedSubs = savedState.substitutions ? sanitizeSubstitutionsForSept7(savedState.substitutions) : [];
             const completeState: AppHistoryState = {
                 teachers: migratedTeachers,
                 classes: savedState.classes || [],
@@ -554,13 +582,13 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 allocations: savedState.allocations || [],
                 placedLessons: safePlacedLessons,
                 initialAllocations: savedState.initialAllocations || savedState.allocations || [],
-                substitutions: savedState.substitutions || [],
+                substitutions: sanitizedSubs,
             };
 
             if (savedState.substitutions) {
-                setSubstitutions(savedState.substitutions);
+                setSubstitutions(sanitizedSubs);
                 try {
-                    localStorage.setItem('timetable_substitutions_v1', JSON.stringify(savedState.substitutions));
+                    localStorage.setItem('timetable_substitutions_v1', JSON.stringify(sanitizedSubs));
                 } catch {}
             }
 
