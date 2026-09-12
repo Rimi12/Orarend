@@ -759,21 +759,34 @@ export const parseKretaSubstitutionExport = (
 
   const is2DArray = Array.isArray(rows[0]);
   const headerMap: Record<string, number> = {};
+  let headerRowIdx = 0;
 
   if (is2DArray) {
-    const headerRow = rows[0] as any[];
+    // Keresünk az első néhány sorban, hogy biztosan megtaláljuk a fejléc sort
+    for (let r = 0; r < Math.min(5, rows.length); r++) {
+      const rowStr = (rows[r] || []).join(' ').toLowerCase();
+      if (rowStr.includes('dátum') || rowStr.includes('helyettesít')) {
+        headerRowIdx = r;
+        break;
+      }
+    }
+
+    const headerRow = rows[headerRowIdx] as any[];
     headerRow.forEach((h, idx) => {
       if (!h) return;
       const s = String(h).toLowerCase().trim();
-      if (s.includes('dátum') || s.includes('datum')) headerMap['date'] = idx;
-      if (s.includes('óra') || s.includes('ora')) headerMap['period'] = idx;
-      if (s.includes('helyettesített')) headerMap['origTeacher'] = idx;
-      if (s.includes('helyettesítő')) headerMap['subTeacher'] = idx;
-      if (s.includes('típ') || s.includes('tip')) headerMap['subType'] = idx;
-      if (s.includes('osztály') || s.includes('csoport')) headerMap['class'] = idx;
-      if (s.includes('tantárgy') || s.includes('tantargy')) headerMap['subject'] = idx;
-      if (s.includes('megjegyzés') || s.includes('megjegyzes')) headerMap['comment'] = idx;
-      if (s.includes('ok')) headerMap['reason'] = idx;
+      if ((s.includes('dátum') || s.includes('datum')) && headerMap['date'] === undefined) headerMap['date'] = idx;
+      // Pontos 'óra' egyezés, kizárva az 'on-line óra' / 'online óra' oszlopot!
+      if ((s === 'óra' || s === 'ora' || ((s.includes('óra') || s.includes('ora')) && !s.includes('on-line') && !s.includes('online'))) && headerMap['period'] === undefined) {
+        headerMap['period'] = idx;
+      }
+      if ((s.includes('helyettesített') || s.includes('helyettesitett')) && headerMap['origTeacher'] === undefined) headerMap['origTeacher'] = idx;
+      if ((s.includes('helyettesítő') || s.includes('helyettesito')) && headerMap['subTeacher'] === undefined) headerMap['subTeacher'] = idx;
+      if ((s.includes('típ') || s.includes('tip')) && headerMap['subType'] === undefined) headerMap['subType'] = idx;
+      if ((s.includes('osztály') || s.includes('csoport')) && headerMap['class'] === undefined) headerMap['class'] = idx;
+      if ((s.includes('tantárgy') || s.includes('tantargy')) && headerMap['subject'] === undefined) headerMap['subject'] = idx;
+      if ((s.includes('megjegyzés') || s.includes('megjegyzes')) && headerMap['comment'] === undefined) headerMap['comment'] = idx;
+      if ((s.includes('oka') || s === 'ok' || (s.includes('ok') && !s.includes('fok'))) && headerMap['reason'] === undefined) headerMap['reason'] = idx;
     });
   }
 
@@ -790,7 +803,7 @@ export const parseKretaSubstitutionExport = (
     dates: string[];
   }>();
 
-  const startIdx = is2DArray ? 1 : 0;
+  const startIdx = is2DArray ? (headerRowIdx + 1) : 0;
   for (let i = startIdx; i < rows.length; i++) {
     const row = rows[i];
     if (!row) continue;
