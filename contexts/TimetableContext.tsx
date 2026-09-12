@@ -432,11 +432,21 @@ export const TimetableProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const teacher = findTeacher(allocation.teacherId);
         const teacherIsAvailable = teacher?.availability?.[cell.day]?.[cell.period] ?? true;
         
-        const isTeacherBusy = currentState.placedLessons.some(p => 
-            p.day === cell.day &&
-            p.period === cell.period &&
-            p.allocation?.teacherId === allocation.teacherId
-        );
+        const isTeacherBusy = currentState.placedLessons.some(p => {
+            if (p.day !== cell.day || p.period !== cell.period || p.allocation?.teacherId !== allocation.teacherId) {
+                return false;
+            }
+            // Ha a pedagógus ugyanabban az órában azonos osztályban több csoportnak tart párhuzamosan órát
+            // (pl. Autista összevont A és B csoport egyidejűleg), az érvényes összevont csoportos órának minősül, nem ütközés.
+            if (p.allocation?.classId === allocation.classId) {
+                const group1 = allocation.originalGroup?.trim().toLowerCase();
+                const group2 = p.allocation?.originalGroup?.trim().toLowerCase();
+                if (group1 && group2 && group1 !== group2) {
+                    return false; // Érvényes párhuzamos csoportos óra ugyanazzal a tanárral
+                }
+            }
+            return true;
+        });
         
         const isClassBusy = currentState.placedLessons.some(p => {
             if (p.day !== cell.day || p.period !== cell.period || p.allocation?.classId !== allocation.classId) {

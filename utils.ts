@@ -951,11 +951,60 @@ export const KRETA_DAY_MAP: Record<string, number> = {
   'Péntek': 4, 'péntek': 4,
 };
 
+/**
+ * Ha a Kréta órarend export két hetes adatot tartalmaz (pl. 1. hét szept 1-4 ideiglenes,
+ * 2. hét szept 7-től végleges órarend), kiszűri az 1. hetet, és kizárólag a 2. heti
+ * (szeptember 7-től kezdődő) végleges tanórákat tartja meg.
+ */
+export const filterToSecondWeekIfDualExport = (rows: any[][]): any[][] => {
+  if (!rows || rows.length < 1500) return rows;
+  const header = rows[0];
+  const mid = Math.floor(rows.length / 2);
+  let splitRow = -1;
+
+  // A Kréta export a pedagógusok szerint rendezi az órákat hetenként.
+  // Az 1. hét végén az utolsó pedagógus (Szabó Imre) után a 2. hét újraindul a lista elejétől (Szabó Árpádné).
+  for (let i = mid - 100; i <= mid + 100; i++) {
+    const prevTeacher = String(rows[i - 1]?.[6] || '').trim();
+    const currTeacher = String(rows[i]?.[6] || '').trim();
+    if (currTeacher && currTeacher !== prevTeacher) {
+      if (currTeacher.includes('Szabó Árpádné') || (i >= mid && prevTeacher.includes('Szabó Imre'))) {
+        splitRow = i;
+        break;
+      }
+    }
+  }
+
+  // Tartalék vizsgálat: óraszám újraindul '1'-re pedagógus váltásnál
+  if (splitRow === -1) {
+    for (let i = mid - 50; i <= mid + 50; i++) {
+      const prevTeacher = String(rows[i - 1]?.[6] || '').trim();
+      const currTeacher = String(rows[i]?.[6] || '').trim();
+      const period = String(rows[i]?.[2] || '').trim();
+      if (currTeacher && currTeacher !== prevTeacher && period === '1') {
+        splitRow = i;
+        break;
+      }
+    }
+  }
+
+  if (splitRow !== -1) {
+    console.info(`Két hetes Kréta órarend észlelve: 1. hét kihagyva (${splitRow - 1} sor), 2. hét megtartva (${rows.length - splitRow} sor, 2026. szept. 7-től).`);
+    return [header, ...rows.slice(splitRow)];
+  }
+
+  return rows;
+};
+
 export const parseKretaCombinedExports = (
   orarendRows: any[][],
   ttfRows?: any[][],
   substitutionRows?: any[][]
 ): KretaCombinedImportResult => {
+  // 0. Ha az órarend fájl két hetes exportot tartalmaz (1. hét ideiglenes, 2. hét szept 7-től végleges),
+  // szűrjük le automatikusan a 2. hétre (szeptember 7-től érvényes végleges órákra)!
+  const cleanOrarendRows = filterToSecondWeekIfDualExport(orarendRows);
+
   // 1. If TTF rows provided, parse TTF allocations first
   let ttfData: ParsedData | null = null;
   if (ttfRows && ttfRows.length >= 3) {
@@ -996,7 +1045,7 @@ export const parseKretaCombinedExports = (
   });
 
   // 2. Parse Orarend rows
-  const header = orarendRows[0] || [];
+  const header = cleanOrarendRows[0] || [];
   const getColIndex = (keywords: string[], defaultIdx: number) => {
     const idx = header.findIndex((h: any) => {
       if (!h) return false;
@@ -1021,8 +1070,8 @@ export const parseKretaCombinedExports = (
   if (ttfData?.classes) {
     ttfData.classes.forEach(c => knownClasses.add(c.name));
   }
-  for (let rowIndex = 1; rowIndex < orarendRows.length; rowIndex++) {
-    const r = orarendRows[rowIndex];
+  for (let rowIndex = 1; rowIndex < cleanOrarendRows.length; rowIndex++) {
+    const r = cleanOrarendRows[rowIndex];
     if (r && r[colClass]) {
       const c = r[colClass].toString().trim();
       if (c && !/csoport|hittan|etika|utazó/i.test(c)) {
@@ -1031,8 +1080,8 @@ export const parseKretaCombinedExports = (
     }
   }
 
-  for (let rowIndex = 1; rowIndex < orarendRows.length; rowIndex++) {
-    const row = orarendRows[rowIndex];
+  for (let rowIndex = 1; rowIndex < cleanOrarendRows.length; rowIndex++) {
+    const row = cleanOrarendRows[rowIndex];
     if (!row || row.length === 0) continue;
 
     const dayStr = (row[colDay] || '').toString().trim();

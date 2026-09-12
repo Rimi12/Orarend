@@ -163,7 +163,7 @@ export const KretaTimetableImportModal: React.FC<KretaTimetableImportModalProps>
                         </span>
                       </div>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        A Krétából letöltött teljes heti órarend (pl. <code className="bg-white dark:bg-gray-800 px-1 py-0.5 rounded text-[11px]">OrarendExport.xlsx</code>), ami tartalmazza a napokat, órákat és termeket.
+                        A Krétából letöltött teljes heti órarend (pl. <code className="bg-white dark:bg-gray-800 px-1 py-0.5 rounded text-[11px]">OrarendExport.xlsx</code>). Két hetes export esetén a rendszer automatikusan a <strong>szeptember 7-től kezdődő végleges órarendet</strong> veszi figyelembe, kiszűrve az 1. hét ideiglenes óráit.
                       </p>
                     </div>
                   </div>
@@ -378,7 +378,7 @@ export const KretaTimetableImportModal: React.FC<KretaTimetableImportModalProps>
                       A Kréta adatok sikeresen beolvasva és feldolgozva!
                     </h3>
                     <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-0.5">
-                      Az alábbi összegzés szerint a tanórák azonnal megjelennek az órarendi rácson.
+                      📅 <strong>2026. szeptember 7-től érvényes végleges órák</strong> alkalmazva. Az egyidejű csoportok (pl. összevont csoportok) valós kontaktóraként jelennek meg a pedagógusok óraszámában.
                     </p>
                   </div>
                 </div>

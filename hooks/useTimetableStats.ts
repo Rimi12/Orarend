@@ -20,8 +20,31 @@ export const useTimetableStats = (
 
     return sortedTeachers.map(teacher => {
         const teacherAllocations = allocations.filter(a => a.teacherId === teacher.id);
-        const totalHours = teacherAllocations.reduce((sum, alloc) => sum + alloc.weeklyHours, 0);
-        const placedHours = teacherAllocations.reduce((sum, alloc) => sum + (placedCounts.get(alloc.id) || 0), 0);
+
+        // A pedagógus által fizikailag megtartott egyedi idősávok száma (valós tanítási órák)
+        const distinctTeachingSlots = new Set(
+          placedLessons
+            .filter(l => l.allocation?.teacherId === teacher.id)
+            .map(l => `${l.day}_${l.period}`)
+        );
+        const placedHours = distinctTeachingSlots.size;
+
+        // Allokált heti órák összege
+        let totalHours = teacherAllocations.reduce((sum, alloc) => sum + alloc.weeklyHours, 0);
+
+        // Ha a pedagógus egyidejűleg több csoportnak tart órát egy osztályban (pl. Autista összevont A és B csoport),
+        // az allokációk összege meghaladja a tényleges idősávok számát. Ha minden órája el van helyezve (vagy csak órarendből lett beolvasva),
+        // a valós heti óraszáma a ténylegesen megtartott egyedi idősávok száma (pl. Magyarosi Etelka: 24/24).
+        if (totalHours > placedHours && placedHours > 0) {
+          const unplacedForTeacher = teacherAllocations.reduce((sum, alloc) => {
+            const placedCount = placedCounts.get(alloc.id) || 0;
+            return sum + Math.max(0, alloc.weeklyHours - placedCount);
+          }, 0);
+          if (unplacedForTeacher === 0) {
+            totalHours = placedHours;
+          }
+        }
+
         return {
             ...teacher,
             display: `${teacher.name} (${placedHours}/${totalHours})`
